@@ -10,6 +10,9 @@ __pycache__/
 # Environment variables / secrets
 .env
 
+# Local/private data
+data/*
+!data/.gitkeep
 # Uploaded documents
 uploads/
 
