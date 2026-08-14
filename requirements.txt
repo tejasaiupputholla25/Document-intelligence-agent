@@ -2,3 +2,4 @@ haystack-ai==2.27
 huggingface_hub
 python-dotenv
 pypdf
+sentence-transformers
