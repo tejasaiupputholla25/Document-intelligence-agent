@@ -27,5 +27,12 @@ Currently under development.
 
 ## Current Phase
 
-Phase 1: Converting the original notebook prototype into a
-structured Python application.
+Phase 1: Converting the original notebook prototype into a structured Python application.
+● Phase 3
+│ Add embedding-based semantic document retrieval
+│
+● Phase 2
+│ Add PDF document ingestion and preprocessing
+│
+● Phase 1
+│ Initialize document intelligence agent project

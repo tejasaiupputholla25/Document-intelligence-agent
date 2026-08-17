@@ -56,7 +56,7 @@ def split_documents(documents):
     splitter = DocumentSplitter(
         split_by="word",
         split_length=50,
-        split_overlap=10,
+        split_overlap=7,
     )
 
     result = splitter.run(

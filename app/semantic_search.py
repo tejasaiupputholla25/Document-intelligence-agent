@@ -65,6 +65,7 @@ def index_documents(documents):
 def search_documents(
     query: str,
     top_k: int = 3,
+    score_threshold: float = 0.30,
 ):
     """
     Search for document chunks that are
@@ -83,5 +84,18 @@ def search_documents(
         query_embedding=query_embedding,
         top_k=top_k,
     )
+    documents = result[
+        "documents"
+    ]
 
-    return result["documents"]
+    filtered_documents = [
+        document
+        for document in documents
+        if (
+            document.score is not None
+            and
+            document.score >= score_threshold
+        )
+    ]
+
+    return filtered_documents
