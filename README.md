@@ -27,6 +27,12 @@ Currently under development.
 
 ## Current Phase
 
+● Phase 6
+│ Add structured data analysis tools
+│
+● Phase 5
+│ Add document agent with tool routing
+│
 ● Phase 4
 │ Add RAG document question answering
 │

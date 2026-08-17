@@ -3,3 +3,6 @@ huggingface_hub
 python-dotenv
 pypdf
 sentence-transformers
+pandas
+openpyxl
+numpy
