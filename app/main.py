@@ -6,8 +6,8 @@ from app.semantic_search import (
     index_documents,
 )
 
-from app.rag import (
-    ask_document,
+from app.agent import (
+    run_document_agent,
 )
 
 
@@ -19,10 +19,10 @@ def main():
         f"\nProcessing document: {file_path}"
     )
 
-    # ---------------------------------
+    # --------------------------------
     # PHASE 2
-    # PDF → chunks
-    # ---------------------------------
+    # PDF -> chunks
+    # --------------------------------
 
     chunks = process_pdf(
         file_path
@@ -32,10 +32,10 @@ def main():
         f"Chunks created: {len(chunks)}"
     )
 
-    # ---------------------------------
+    # --------------------------------
     # PHASE 3
-    # chunks → embeddings → vector store
-    # ---------------------------------
+    # chunks -> embeddings -> store
+    # --------------------------------
 
     index_documents(
         chunks
@@ -45,10 +45,14 @@ def main():
         "Document indexed successfully."
     )
 
-    # ---------------------------------
-    # PHASE 4
-    # RAG question answering
-    # ---------------------------------
+    # --------------------------------
+    # PHASE 5
+    # Agent
+    # --------------------------------
+
+    print(
+        "\nDocument Intelligence Agent is ready."
+    )
 
     while True:
 
@@ -60,14 +64,13 @@ def main():
         if question.lower() == "exit":
 
             print(
-                "\nExiting document Q&A."
+                "\nExiting Document Intelligence Agent."
             )
 
             break
 
-        result = ask_document(
-            question=question,
-            top_k=3,
+        answer = run_document_agent(
+            question
         )
 
         print(
@@ -75,49 +78,16 @@ def main():
         )
 
         print(
-            "\nANSWER:\n"
+            "\nAGENT ANSWER:\n"
         )
 
         print(
-            result["answer"]
+            answer
         )
 
         print(
-            "\nSOURCES:\n"
+            "\n" + "=" * 80
         )
-
-        for index, document in enumerate(
-            result["documents"],
-            start=1,
-        ):
-
-            print(
-                f"SOURCE {index}"
-            )
-
-            print(
-                f"Score: "
-                f"{document.score}"
-            )
-
-            print(
-                f"Metadata: "
-                f"{document.meta}"
-            )
-
-            print(
-                "\nContent Preview:"
-            )
-
-            print(
-                (document.content or "")[
-                    :300
-                ]
-            )
-
-            print(
-                "\n" + "-" * 60
-            )
 
 
 if __name__ == "__main__":

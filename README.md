@@ -27,7 +27,9 @@ Currently under development.
 
 ## Current Phase
 
-Phase 1: Converting the original notebook prototype into a structured Python application.
+● Phase 4
+│ Add RAG document question answering
+│
 ● Phase 3
 │ Add embedding-based semantic document retrieval
 │
