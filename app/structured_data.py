@@ -4,15 +4,16 @@ from typing import Optional
 import pandas as pd
 
 
-# ---------------------------------------------------------
-# Temporary application state
-# ---------------------------------------------------------
-# For Phase 6, we keep one structured dataset loaded
-# in memory at a time.
+# =========================================================
+# CURRENT STRUCTURED DATA STATE
+# =========================================================
 #
-# Later, when we build a real multi-user application,
-# this will be replaced with per-user / per-session storage.
-# ---------------------------------------------------------
+# Phase 6 supports one structured dataset at a time.
+#
+# This is appropriate for our local learning application.
+# Later we will replace this global state with
+# user/session-specific storage.
+# =========================================================
 
 _current_dataframe: Optional[pd.DataFrame] = None
 _current_file_name: Optional[str] = None
@@ -24,14 +25,17 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
+# =========================================================
+# LOAD DATA
+# =========================================================
+
 def load_structured_data(
     file_path: str,
 ) -> dict:
     """
-    Load a CSV or XLSX file into memory
-    as a Pandas DataFrame.
+    Load a CSV or XLSX file into memory.
 
-    Returns basic information about
+    Returns basic metadata describing
     the loaded dataset.
     """
 
@@ -41,7 +45,7 @@ def load_structured_data(
     path = Path(file_path)
 
     # -----------------------------------------------------
-    # Validate file existence
+    # File existence
     # -----------------------------------------------------
 
     if not path.exists():
@@ -50,19 +54,19 @@ def load_structured_data(
         )
 
     # -----------------------------------------------------
-    # Validate extension
+    # File extension
     # -----------------------------------------------------
 
     extension = path.suffix.lower()
 
     if extension not in SUPPORTED_EXTENSIONS:
         raise ValueError(
-            "Unsupported structured data format. "
-            "Currently supported formats are CSV and XLSX."
+            "Unsupported structured-data format. "
+            "Supported formats: CSV and XLSX."
         )
 
     # -----------------------------------------------------
-    # Load data
+    # Read file
     # -----------------------------------------------------
 
     if extension == ".csv":
@@ -78,26 +82,22 @@ def load_structured_data(
         )
 
     else:
-        # Defensive fallback
+
         raise ValueError(
-            f"Unsupported file extension: {extension}"
+            f"Unsupported extension: {extension}"
         )
 
     # -----------------------------------------------------
-    # Validate content
+    # Validate data
     # -----------------------------------------------------
 
     if dataframe.empty:
         raise ValueError(
-            "The structured data file contains no rows."
+            "The structured-data file contains no rows."
         )
 
     # -----------------------------------------------------
     # Clean column names
-    # -----------------------------------------------------
-    # Example:
-    #
-    # " revenue " -> "revenue"
     # -----------------------------------------------------
 
     dataframe.columns = [
@@ -106,7 +106,7 @@ def load_structured_data(
     ]
 
     # -----------------------------------------------------
-    # Duplicate columns can create ambiguous analysis.
+    # Validate duplicate columns
     # -----------------------------------------------------
 
     if dataframe.columns.duplicated().any():
@@ -119,41 +119,39 @@ def load_structured_data(
         )
 
         raise ValueError(
-            "The dataset contains duplicate column names: "
+            "Duplicate columns detected: "
             f"{duplicate_columns}"
         )
 
     # -----------------------------------------------------
-    # Save current dataset in memory
+    # Store current dataset
     # -----------------------------------------------------
 
     _current_dataframe = dataframe
-
     _current_file_name = path.name
 
-    # -----------------------------------------------------
-    # Return dataset information
-    # -----------------------------------------------------
-
     return {
-        "file_name": path.name,
+        "file_name":
+            path.name,
 
-        "rows": int(
-            dataframe.shape[0]
-        ),
+        "rows":
+            int(dataframe.shape[0]),
 
-        "columns": int(
-            dataframe.shape[1]
-        ),
+        "columns":
+            int(dataframe.shape[1]),
 
         "column_names":
             dataframe.columns.tolist(),
     }
 
 
+# =========================================================
+# GET DATAFRAME
+# =========================================================
+
 def get_current_dataframe() -> pd.DataFrame:
     """
-    Return the currently loaded Pandas DataFrame.
+    Return the currently loaded structured dataset.
     """
 
     if _current_dataframe is None:
@@ -165,10 +163,13 @@ def get_current_dataframe() -> pd.DataFrame:
     return _current_dataframe
 
 
+# =========================================================
+# GET FILE NAME
+# =========================================================
+
 def get_current_file_name() -> str:
     """
-    Return the filename of the currently
-    loaded structured dataset.
+    Return the name of the currently loaded dataset.
     """
 
     if _current_file_name is None:
@@ -180,6 +181,10 @@ def get_current_file_name() -> str:
     return _current_file_name
 
 
+# =========================================================
+# CHECK STATE
+# =========================================================
+
 def has_structured_data() -> bool:
     """
     Return True if a structured dataset
@@ -187,3 +192,20 @@ def has_structured_data() -> bool:
     """
 
     return _current_dataframe is not None
+
+
+# =========================================================
+# CLEAR DATA
+# =========================================================
+
+def clear_structured_data() -> None:
+    """
+    Remove the current structured dataset
+    from application memory.
+    """
+
+    global _current_dataframe
+    global _current_file_name
+
+    _current_dataframe = None
+    _current_file_name = None

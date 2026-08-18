@@ -15,6 +15,10 @@ from app.agent import (
 )
 
 
+# =========================================================
+# MAIN
+# =========================================================
+
 def main():
 
     # =====================================================
@@ -25,16 +29,13 @@ def main():
         "data/sample.pdf"
     )
 
-    #structured_file_path = (
-    #    "data/sample_data.csv"
-    #)
     structured_file_path = (
-            "data/sample_data.xlsx"
-        )
+        "data/sample_sales.csv"
+    )
+
 
     # =====================================================
-    # PHASE 2 + PHASE 3
-    # PROCESS AND INDEX PDF
+    # PDF PROCESSING
     # =====================================================
 
     print(
@@ -42,7 +43,7 @@ def main():
     )
 
     print(
-        "DOCUMENT PROCESSING"
+        "PDF PROCESSING"
     )
 
     print(
@@ -55,10 +56,7 @@ def main():
     )
 
 
-    # -----------------------------------------------------
-    # PDF -> chunks
-    # -----------------------------------------------------
-
+    # Phase 2
     chunks = process_pdf(
         pdf_path
     )
@@ -70,10 +68,7 @@ def main():
     )
 
 
-    # -----------------------------------------------------
-    # chunks -> embeddings -> document store
-    # -----------------------------------------------------
-
+    # Phase 3
     index_documents(
         chunks
     )
@@ -85,8 +80,7 @@ def main():
 
 
     # =====================================================
-    # PHASE 6
-    # LOAD STRUCTURED DATA
+    # STRUCTURED DATA
     # =====================================================
 
     print(
@@ -103,7 +97,7 @@ def main():
 
 
     print(
-        f"\nLoading structured data: "
+        f"\nLoading dataset: "
         f"{structured_file_path}"
     )
 
@@ -114,7 +108,7 @@ def main():
 
 
     print(
-        "\nStructured data loaded successfully."
+        "Dataset loaded successfully."
     )
 
 
@@ -137,13 +131,15 @@ def main():
 
 
     print(
-        "Column names:"
+        "\nColumn names:"
     )
 
 
-    for column in data_info[
-        "column_names"
-    ]:
+    for column in (
+        data_info[
+            "column_names"
+        ]
+    ):
 
         print(
             f"  - {column}"
@@ -151,7 +147,6 @@ def main():
 
 
     # =====================================================
-    # PHASE 5 + PHASE 6
     # AGENT
     # =====================================================
 
@@ -174,24 +169,24 @@ def main():
 
 
     print(
-        "\nCurrent capabilities:"
+        "\nCapabilities:"
     )
 
 
     print(
-        "- Search information inside the PDF"
+        "- Search information inside PDF"
     )
 
     print(
-        "- Inspect PDF document information"
+        "- Inspect PDF metadata"
     )
 
     print(
-        "- Inspect CSV/XLSX data"
+        "- Inspect CSV/XLSX dataset"
     )
 
     print(
-        "- Calculate aggregates"
+        "- Calculate aggregations"
     )
 
     print(
@@ -199,12 +194,12 @@ def main():
     )
 
     print(
-        "- Filter structured data"
+        "- Filter dataset rows"
     )
 
 
     # =====================================================
-    # CHAT LOOP
+    # QUESTION LOOP
     # =====================================================
 
     while True:
@@ -215,11 +210,12 @@ def main():
         )
 
 
-        # -------------------------------------------------
-        # Exit command
-        # -------------------------------------------------
+        question = (
+            question.strip()
+        )
 
-        if question.strip().lower() == "exit":
+
+        if question.lower() == "exit":
 
             print(
                 "\nExiting Document "
@@ -229,11 +225,7 @@ def main():
             break
 
 
-        # -------------------------------------------------
-        # Ignore empty input
-        # -------------------------------------------------
-
-        if not question.strip():
+        if not question:
 
             print(
                 "Please enter a question."
@@ -242,14 +234,12 @@ def main():
             continue
 
 
-        # -------------------------------------------------
-        # Send to Agent
-        # -------------------------------------------------
-
         try:
 
-            answer = run_document_agent(
-                question
+            answer = (
+                run_document_agent(
+                    question
+                )
             )
 
 
@@ -276,15 +266,17 @@ def main():
         except Exception as error:
 
             print(
-                "\nAn error occurred while "
-                "processing your request."
+                "\nAn error occurred."
             )
-
 
             print(
                 f"Error: {error}"
             )
 
+
+# =========================================================
+# ENTRY POINT
+# =========================================================
 
 if __name__ == "__main__":
 

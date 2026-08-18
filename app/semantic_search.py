@@ -99,3 +99,25 @@ def search_documents(
     ]
 
     return filtered_documents
+
+def clear_document_store():
+    """
+    Remove all currently indexed documents
+    from the in-memory document store.
+    """
+
+    documents = (
+        document_store.filter_documents()
+    )
+
+    if not documents:
+        return
+
+    document_ids = [
+        document.id
+        for document in documents
+    ]
+
+    document_store.delete_documents(
+        document_ids
+    )
