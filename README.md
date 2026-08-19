@@ -27,8 +27,11 @@ Currently under development.
 
 ## Current Phase
 
+● Phase 7
+│ Add Streamlit web interface
+│
 ● Phase 6
-│ Add structured data analysis tools
+│ Fix structured data analysis and agent tool calling
 │
 ● Phase 5
 │ Add document agent with tool routing
@@ -37,10 +40,10 @@ Currently under development.
 │ Add RAG document question answering
 │
 ● Phase 3
-│ Add embedding-based semantic document retrieval
+│ Add semantic document retrieval
 │
 ● Phase 2
-│ Add PDF document ingestion and preprocessing
+│ Add PDF ingestion and preprocessing
 │
 ● Phase 1
-│ Initialize document intelligence agent project
+│ Initialize project

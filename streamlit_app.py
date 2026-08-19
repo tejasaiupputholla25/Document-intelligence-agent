@@ -1,26 +1,39 @@
-from pathlib import Path
-import hashlib
+import os
 
+import pandas as pd
+import requests
 import streamlit as st
 
+from dotenv import load_dotenv
 
-from app.document_processing import (
-    process_pdf,
+
+# =========================================================
+# ENVIRONMENT
+# =========================================================
+
+load_dotenv()
+
+
+API_BASE_URL = (
+    os.getenv(
+        "API_BASE_URL",
+        "http://127.0.0.1:8000",
+    )
+    .rstrip("/")
 )
 
-from app.semantic_search import (
-    index_documents,
-    clear_document_store,
-)
 
-from app.structured_data import (
-    load_structured_data,
-    get_current_dataframe,
-    clear_structured_data,
-)
+# =========================================================
+# HTTP SETTINGS
+# =========================================================
 
-from app.agent import (
-    run_document_agent,
+CONNECT_TIMEOUT = 10
+
+READ_TIMEOUT = 180
+
+REQUEST_TIMEOUT = (
+    CONNECT_TIMEOUT,
+    READ_TIMEOUT,
 )
 
 
@@ -29,36 +42,11 @@ from app.agent import (
 # =========================================================
 
 st.set_page_config(
-    page_title="Document Intelligence Agent",
+    page_title=(
+        "Document Intelligence Agent"
+    ),
     page_icon="📄",
     layout="wide",
-)
-
-
-# =========================================================
-# UPLOAD DIRECTORY
-# =========================================================
-
-UPLOAD_DIRECTORY = Path(
-    "uploads"
-)
-
-UPLOAD_DIRECTORY.mkdir(
-    parents=True,
-    exist_ok=True,
-)
-
-
-# =========================================================
-# DEVELOPMENT FILE SIZE LIMIT
-# =========================================================
-
-MAX_FILE_SIZE_MB = 20
-
-MAX_FILE_SIZE_BYTES = (
-    MAX_FILE_SIZE_MB
-    * 1024
-    * 1024
 )
 
 
@@ -70,23 +58,23 @@ def initialize_session_state():
 
     defaults = {
 
-        # Chat
         "messages": [],
 
-        # PDF
-        "pdf_ready": False,
-        "pdf_name": None,
-        "pdf_hash": None,
-        "pdf_chunk_count": 0,
+        "backend_online":
+            False,
 
-        # Structured data
-        "data_ready": False,
-        "data_name": None,
-        "data_hash": None,
-        "data_rows": 0,
-        "data_columns": 0,
-        "data_column_names": [],
+        "backend_status": {
+
+            "pdf": {
+                "ready": False,
+            },
+
+            "dataset": {
+                "ready": False,
+            },
+        },
     }
+
 
     for key, value in defaults.items():
 
@@ -101,238 +89,300 @@ initialize_session_state()
 
 
 # =========================================================
-# FILE HASH
+# API ERROR CLASS
 # =========================================================
 
-def calculate_file_hash(
-    file_bytes: bytes,
+class APIError(Exception):
+
+    pass
+
+
+# =========================================================
+# API HELPER
+# =========================================================
+
+def api_request(
+    method: str,
+    endpoint: str,
+    **kwargs,
+):
+
+    url = (
+        f"{API_BASE_URL}"
+        f"{endpoint}"
+    )
+
+
+    try:
+
+        response = (
+            requests.request(
+                method=method,
+                url=url,
+                timeout=REQUEST_TIMEOUT,
+                **kwargs,
+            )
+        )
+
+
+    except requests.exceptions.Timeout:
+
+        raise APIError(
+            "The backend request timed out."
+        )
+
+
+    except requests.exceptions.ConnectionError:
+
+        raise APIError(
+            "Could not connect to the FastAPI backend. "
+            "Make sure it is running on port 8000."
+        )
+
+
+    except requests.exceptions.RequestException as error:
+
+        raise APIError(
+            f"Backend request failed: "
+            f"{error}"
+        )
+
+
+    # -----------------------------------------------------
+    # Handle backend error response
+    # -----------------------------------------------------
+
+    if not response.ok:
+
+        try:
+
+            error_body = (
+                response.json()
+            )
+
+            detail = (
+                error_body.get(
+                    "detail",
+                    response.text,
+                )
+            )
+
+
+        except ValueError:
+
+            detail = (
+                response.text
+                or
+                "Unknown backend error."
+            )
+
+
+        raise APIError(
+            f"Backend returned "
+            f"HTTP {response.status_code}: "
+            f"{detail}"
+        )
+
+
+    # -----------------------------------------------------
+    # Decode JSON
+    # -----------------------------------------------------
+
+    try:
+
+        return response.json()
+
+
+    except ValueError:
+
+        raise APIError(
+            "Backend returned invalid JSON."
+        )
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+def check_backend() -> bool:
+
+    try:
+
+        result = api_request(
+            "GET",
+            "/health",
+        )
+
+
+        return (
+            result.get(
+                "status"
+            )
+            == "ok"
+        )
+
+
+    except APIError:
+
+        return False
+
+
+# =========================================================
+# STATUS
+# =========================================================
+
+def refresh_backend_status():
+
+    result = api_request(
+        "GET",
+        "/api/v1/status",
+    )
+
+
+    st.session_state[
+        "backend_status"
+    ] = result
+
+
+# =========================================================
+# UPLOAD PDF
+# =========================================================
+
+def upload_pdf_to_api(
+    uploaded_file,
+):
+
+    files = {
+
+        "file": (
+
+            uploaded_file.name,
+
+            uploaded_file.getvalue(),
+
+            uploaded_file.type
+            or
+            "application/pdf",
+        )
+    }
+
+
+    result = api_request(
+        "POST",
+        "/api/v1/documents/upload",
+        files=files,
+    )
+
+
+    refresh_backend_status()
+
+
+    return result
+
+
+# =========================================================
+# UPLOAD DATASET
+# =========================================================
+
+def upload_dataset_to_api(
+    uploaded_file,
+):
+
+    files = {
+
+        "file": (
+
+            uploaded_file.name,
+
+            uploaded_file.getvalue(),
+
+            uploaded_file.type
+            or
+            "application/octet-stream",
+        )
+    }
+
+
+    result = api_request(
+        "POST",
+        "/api/v1/datasets/upload",
+        files=files,
+    )
+
+
+    refresh_backend_status()
+
+
+    return result
+
+
+# =========================================================
+# CHAT
+# =========================================================
+
+def ask_api(
+    question: str,
 ) -> str:
 
-    return hashlib.sha256(
-        file_bytes
-    ).hexdigest()
+    result = api_request(
+
+        "POST",
+
+        "/api/v1/chat",
+
+        json={
+            "question":
+                question
+        },
+    )
+
+
+    return result[
+        "answer"
+    ]
 
 
 # =========================================================
-# SAVE UPLOAD
+# PREVIEW
 # =========================================================
 
-def save_uploaded_file(
-    uploaded_file,
-) -> tuple[Path, str]:
-
-    file_bytes = (
-        uploaded_file.getvalue()
-    )
-
-    # -----------------------------------------------------
-    # Validate size
-    # -----------------------------------------------------
-
-    if (
-        len(file_bytes)
-        > MAX_FILE_SIZE_BYTES
-    ):
-
-        raise ValueError(
-            f"File is larger than "
-            f"{MAX_FILE_SIZE_MB} MB."
-        )
-
-    # -----------------------------------------------------
-    # Sanitize filename
-    # -----------------------------------------------------
-
-    safe_file_name = Path(
-        uploaded_file.name
-    ).name
-
-    # -----------------------------------------------------
-    # File hash
-    # -----------------------------------------------------
-
-    file_hash = (
-        calculate_file_hash(
-            file_bytes
-        )
-    )
-
-    # -----------------------------------------------------
-    # Save with unique prefix
-    # -----------------------------------------------------
-
-    saved_file_name = (
-        f"{file_hash[:12]}_"
-        f"{safe_file_name}"
-    )
-
-    saved_path = (
-        UPLOAD_DIRECTORY
-        / saved_file_name
-    )
-
-    saved_path.write_bytes(
-        file_bytes
-    )
-
-    return (
-        saved_path,
-        file_hash,
-    )
-
-
-# =========================================================
-# PROCESS PDF
-# =========================================================
-
-def process_uploaded_pdf(
-    uploaded_file,
+def get_dataset_preview(
+    limit: int = 20,
 ):
 
-    saved_path, file_hash = (
-        save_uploaded_file(
-            uploaded_file
-        )
-    )
+    return api_request(
 
-    # -----------------------------------------------------
-    # Already processed
-    # -----------------------------------------------------
+        "GET",
 
-    if (
-        st.session_state.pdf_ready
-        and
-        st.session_state.pdf_hash
-        == file_hash
-    ):
+        "/api/v1/datasets/preview",
 
-        return
-
-    # -----------------------------------------------------
-    # Remove previously indexed PDF
-    # -----------------------------------------------------
-
-    clear_document_store()
-
-    # -----------------------------------------------------
-    # Phase 2
-    # PDF -> chunks
-    # -----------------------------------------------------
-
-    chunks = process_pdf(
-        str(saved_path)
-    )
-
-    if not chunks:
-
-        raise ValueError(
-            "No readable text was extracted "
-            "from the uploaded PDF."
-        )
-
-    # -----------------------------------------------------
-    # Phase 3
-    # chunks -> embeddings -> vector store
-    # -----------------------------------------------------
-
-    index_documents(
-        chunks
-    )
-
-    # -----------------------------------------------------
-    # Save UI state
-    # -----------------------------------------------------
-
-    st.session_state.pdf_ready = True
-
-    st.session_state.pdf_name = (
-        uploaded_file.name
-    )
-
-    st.session_state.pdf_hash = (
-        file_hash
-    )
-
-    st.session_state.pdf_chunk_count = (
-        len(chunks)
+        params={
+            "limit":
+                limit
+        },
     )
 
 
 # =========================================================
-# PROCESS CSV / XLSX
+# CHECK BACKEND
 # =========================================================
 
-def process_uploaded_dataset(
-    uploaded_file,
-):
+st.session_state.backend_online = (
+    check_backend()
+)
 
-    saved_path, file_hash = (
-        save_uploaded_file(
-            uploaded_file
+
+if st.session_state.backend_online:
+
+    try:
+
+        refresh_backend_status()
+
+    except APIError:
+
+        st.session_state.backend_online = (
+            False
         )
-    )
-
-    # -----------------------------------------------------
-    # Already loaded
-    # -----------------------------------------------------
-
-    if (
-        st.session_state.data_ready
-        and
-        st.session_state.data_hash
-        == file_hash
-    ):
-
-        return
-
-    # -----------------------------------------------------
-    # Reset previous dataset
-    # -----------------------------------------------------
-
-    clear_structured_data()
-
-    # -----------------------------------------------------
-    # Phase 6
-    # CSV/XLSX -> Pandas
-    # -----------------------------------------------------
-
-    data_info = (
-        load_structured_data(
-            str(saved_path)
-        )
-    )
-
-    # -----------------------------------------------------
-    # Save UI state
-    # -----------------------------------------------------
-
-    st.session_state.data_ready = True
-
-    st.session_state.data_name = (
-        uploaded_file.name
-    )
-
-    st.session_state.data_hash = (
-        file_hash
-    )
-
-    st.session_state.data_rows = (
-        data_info[
-            "rows"
-        ]
-    )
-
-    st.session_state.data_columns = (
-        data_info[
-            "columns"
-        ]
-    )
-
-    st.session_state.data_column_names = (
-        data_info[
-            "column_names"
-        ]
-    )
 
 
 # =========================================================
@@ -345,13 +395,44 @@ with st.sidebar:
         "📁 Files"
     )
 
-    st.caption(
-        "Upload a PDF and/or CSV/XLSX file."
+
+    # =====================================================
+    # BACKEND STATUS
+    # =====================================================
+
+    st.subheader(
+        "Backend"
     )
 
 
+    if st.session_state.backend_online:
+
+        st.success(
+            "FastAPI connected"
+        )
+
+
+    else:
+
+        st.error(
+            "FastAPI offline"
+        )
+
+        st.caption(
+            "Start the backend with:"
+        )
+
+        st.code(
+            "uvicorn app.api.main:app "
+            "--reload --port 8000"
+        )
+
+
+    st.divider()
+
+
     # =====================================================
-    # PDF SECTION
+    # PDF
     # =====================================================
 
     st.subheader(
@@ -373,39 +454,60 @@ with st.sidebar:
     if uploaded_pdf is not None:
 
         if st.button(
-            "Process PDF",
+            "Upload PDF",
             type="primary",
             width="stretch",
+            disabled=(
+                not st.session_state
+                .backend_online
+            ),
         ):
 
             try:
 
                 with st.spinner(
-                    "Processing PDF...",
+                    "Sending PDF to FastAPI...",
                     show_time=True,
                 ):
 
-                    process_uploaded_pdf(
-                        uploaded_pdf
+                    result = (
+                        upload_pdf_to_api(
+                            uploaded_pdf
+                        )
                     )
 
+
                 st.success(
-                    "PDF processed successfully."
+                    result[
+                        "message"
+                    ]
                 )
 
-            except Exception as error:
+
+            except APIError as error:
 
                 st.error(
-                    f"PDF processing failed: "
-                    f"{error}"
+                    str(error)
                 )
 
 
     # -----------------------------------------------------
-    # PDF STATUS
+    # PDF status
     # -----------------------------------------------------
 
-    if st.session_state.pdf_ready:
+    pdf_status = (
+        st.session_state
+        .backend_status
+        .get(
+            "pdf",
+            {}
+        )
+    )
+
+
+    if pdf_status.get(
+        "ready"
+    ):
 
         st.success(
             "PDF ready"
@@ -413,18 +515,19 @@ with st.sidebar:
 
         st.write(
             f"**File:** "
-            f"{st.session_state.pdf_name}"
+            f"{pdf_status.get('file_name')}"
         )
 
         st.write(
             f"**Chunks:** "
-            f"{st.session_state.pdf_chunk_count}"
+            f"{pdf_status.get('chunk_count')}"
         )
+
 
     else:
 
         st.info(
-            "No PDF processed."
+            "No PDF loaded."
         )
 
 
@@ -432,7 +535,7 @@ with st.sidebar:
 
 
     # =====================================================
-    # DATASET SECTION
+    # DATASET
     # =====================================================
 
     st.subheader(
@@ -455,39 +558,60 @@ with st.sidebar:
     if uploaded_dataset is not None:
 
         if st.button(
-            "Load Dataset",
+            "Upload Dataset",
             type="primary",
             width="stretch",
+            disabled=(
+                not st.session_state
+                .backend_online
+            ),
         ):
 
             try:
 
                 with st.spinner(
-                    "Loading dataset...",
+                    "Sending dataset to FastAPI...",
                     show_time=True,
                 ):
 
-                    process_uploaded_dataset(
-                        uploaded_dataset
+                    result = (
+                        upload_dataset_to_api(
+                            uploaded_dataset
+                        )
                     )
 
+
                 st.success(
-                    "Dataset loaded successfully."
+                    result[
+                        "message"
+                    ]
                 )
 
-            except Exception as error:
+
+            except APIError as error:
 
                 st.error(
-                    f"Dataset loading failed: "
-                    f"{error}"
+                    str(error)
                 )
 
 
     # -----------------------------------------------------
-    # DATASET STATUS
+    # Dataset status
     # -----------------------------------------------------
 
-    if st.session_state.data_ready:
+    dataset_status = (
+        st.session_state
+        .backend_status
+        .get(
+            "dataset",
+            {}
+        )
+    )
+
+
+    if dataset_status.get(
+        "ready"
+    ):
 
         st.success(
             "Dataset ready"
@@ -495,23 +619,24 @@ with st.sidebar:
 
         st.write(
             f"**File:** "
-            f"{st.session_state.data_name}"
+            f"{dataset_status.get('file_name')}"
         )
 
         st.write(
             f"**Rows:** "
-            f"{st.session_state.data_rows}"
+            f"{dataset_status.get('rows')}"
         )
 
         st.write(
             f"**Columns:** "
-            f"{st.session_state.data_columns}"
+            f"{dataset_status.get('columns')}"
         )
+
 
     else:
 
         st.info(
-            "No structured dataset loaded."
+            "No dataset loaded."
         )
 
 
@@ -540,29 +665,70 @@ st.title(
     "📄 Document Intelligence Agent"
 )
 
+
 st.caption(
-    "Ask questions about PDF documents "
-    "and analyze CSV/XLSX datasets."
+    "Streamlit frontend + FastAPI backend"
 )
+
+
+# =========================================================
+# ARCHITECTURE STATUS
+# =========================================================
+
+if st.session_state.backend_online:
+
+    st.success(
+        "Frontend connected to FastAPI backend."
+    )
+
+
+else:
+
+    st.error(
+        "FastAPI backend is not running."
+    )
 
 
 # =========================================================
 # SOURCE STATUS
 # =========================================================
 
-pdf_column, data_column = (
+pdf_status = (
+    st.session_state
+    .backend_status
+    .get(
+        "pdf",
+        {}
+    )
+)
+
+
+dataset_status = (
+    st.session_state
+    .backend_status
+    .get(
+        "dataset",
+        {}
+    )
+)
+
+
+column_1, column_2 = (
     st.columns(2)
 )
 
 
-with pdf_column:
+with column_1:
 
-    if st.session_state.pdf_ready:
+    if pdf_status.get(
+        "ready"
+    ):
 
         st.success(
             f"PDF: "
-            f"{st.session_state.pdf_name}"
+            f"{pdf_status.get('file_name')}"
         )
+
 
     else:
 
@@ -571,14 +737,17 @@ with pdf_column:
         )
 
 
-with data_column:
+with column_2:
 
-    if st.session_state.data_ready:
+    if dataset_status.get(
+        "ready"
+    ):
 
         st.success(
             f"Dataset: "
-            f"{st.session_state.data_name}"
+            f"{dataset_status.get('file_name')}"
         )
+
 
     else:
 
@@ -591,7 +760,13 @@ with data_column:
 # DATASET PREVIEW
 # =========================================================
 
-if st.session_state.data_ready:
+if (
+    st.session_state.backend_online
+    and
+    dataset_status.get(
+        "ready"
+    )
+):
 
     with st.expander(
         "Preview dataset"
@@ -599,26 +774,36 @@ if st.session_state.data_ready:
 
         try:
 
-            dataframe = (
-                get_current_dataframe()
+            preview = (
+                get_dataset_preview(
+                    limit=20
+                )
             )
+
+
+            dataframe = pd.DataFrame(
+                preview[
+                    "rows"
+                ]
+            )
+
 
             st.dataframe(
-                dataframe.head(20),
-                width="stretch",
+                dataframe,
                 hide_index=True,
+                width="stretch",
             )
 
-        except Exception as error:
+
+        except APIError as error:
 
             st.warning(
-                f"Dataset preview unavailable: "
-                f"{error}"
+                str(error)
             )
 
 
 # =========================================================
-# SAMPLE QUESTIONS
+# EXAMPLE QUESTIONS
 # =========================================================
 
 with st.expander(
@@ -630,9 +815,8 @@ with st.expander(
 **PDF**
 
 - What skills are mentioned in the PDF?
-- What experience is described?
-- What does the document say about machine learning?
 - How many PDF chunks are indexed?
+- What does the document say about machine learning?
 
 **Dataset**
 
@@ -647,7 +831,7 @@ with st.expander(
 
 
 # =========================================================
-# DISPLAY CHAT HISTORY
+# CHAT HISTORY
 # =========================================================
 
 for message in (
@@ -668,13 +852,33 @@ for message in (
 
 
 # =========================================================
-# CHAT READY?
+# ENABLE CHAT?
 # =========================================================
 
 source_ready = (
-    st.session_state.pdf_ready
+
+    pdf_status.get(
+        "ready",
+        False,
+    )
+
     or
-    st.session_state.data_ready
+
+    dataset_status.get(
+        "ready",
+        False,
+    )
+)
+
+
+chat_enabled = (
+
+    st.session_state
+    .backend_online
+
+    and
+
+    source_ready
 )
 
 
@@ -686,24 +890,25 @@ prompt = st.chat_input(
 
     (
         "Ask about your PDF or dataset..."
-        if source_ready
+        if chat_enabled
         else
-        "Upload and process a file first..."
+        "Start FastAPI and upload a file first..."
     ),
 
-    disabled=
-        not source_ready,
+    disabled=(
+        not chat_enabled
+    ),
 )
 
 
 # =========================================================
-# HANDLE QUESTION
+# HANDLE CHAT
 # =========================================================
 
 if prompt:
 
     # -----------------------------------------------------
-    # Save user message
+    # User message
     # -----------------------------------------------------
 
     st.session_state.messages.append(
@@ -717,10 +922,6 @@ if prompt:
     )
 
 
-    # -----------------------------------------------------
-    # Display user message
-    # -----------------------------------------------------
-
     with st.chat_message(
         "user"
     ):
@@ -731,7 +932,7 @@ if prompt:
 
 
     # -----------------------------------------------------
-    # Agent
+    # Assistant
     # -----------------------------------------------------
 
     with st.chat_message(
@@ -741,27 +942,28 @@ if prompt:
         try:
 
             with st.spinner(
-                "Thinking...",
+                "Agent is thinking...",
                 show_time=True,
             ):
 
                 answer = (
-                    run_document_agent(
+                    ask_api(
                         prompt
                     )
                 )
+
 
             st.markdown(
                 answer
             )
 
-        except Exception as error:
+
+        except APIError as error:
 
             answer = (
-                "An error occurred while "
-                "processing the request.\n\n"
-                f"`{error}`"
+                f"API error: {error}"
             )
+
 
             st.error(
                 answer
@@ -769,7 +971,7 @@ if prompt:
 
 
     # -----------------------------------------------------
-    # Save assistant response
+    # Store assistant answer
     # -----------------------------------------------------
 
     st.session_state.messages.append(
