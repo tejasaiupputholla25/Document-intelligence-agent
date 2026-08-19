@@ -1,11 +1,47 @@
 from typing import Annotated
 
-from haystack.tools import tool
+from haystack.components.agents import (
+    State,
+)
+
+from haystack.tools import (
+    tool,
+)
+
 
 from app.semantic_search import (
+    get_session_documents,
     search_documents,
-    document_store,
 )
+
+
+# =========================================================
+# SESSION HELPER
+# =========================================================
+
+def _get_session_id(
+    state: State,
+) -> str:
+    """
+    Extract and validate session_id
+    from Haystack Agent State.
+    """
+
+    session_id = state.get(
+        "session_id"
+    )
+
+
+    if not session_id:
+
+        raise RuntimeError(
+            "Agent session_id is missing."
+        )
+
+
+    return str(
+        session_id
+    )
 
 
 # =========================================================
@@ -15,13 +51,17 @@ from app.semantic_search import (
 
 @tool
 def search_document(
+
     query: Annotated[
         str,
         (
             "Question or topic to search for "
-            "inside the uploaded document."
+            "inside the current session's "
+            "uploaded PDF/document."
         ),
     ],
+
+    state: State,
 
     top_k: Annotated[
         int,
@@ -33,27 +73,50 @@ def search_document(
 
 ) -> dict:
     """
-    Search the uploaded PDF/document for information.
-
-    Use this tool whenever the user asks about
-    facts or information contained inside the
-    uploaded document.
+    Search the current session's indexed PDF
+    for relevant information.
     """
 
+    session_id = (
+        _get_session_id(
+            state
+        )
+    )
+
+
     print(
-        "\n[TOOL EXECUTED] search_document"
+        "\n[TOOL EXECUTED] "
+        "search_document"
     )
 
     print(
-        f"Query: {query}\n"
+        f"Session: "
+        f"{session_id}"
     )
 
-    documents = search_documents(
-        query=query,
-        top_k=top_k,
+    print(
+        f"Query: "
+        f"{query}\n"
     )
+
+
+    documents = (
+        search_documents(
+
+            query=
+                query,
+
+            session_id=
+                session_id,
+
+            top_k=
+                top_k,
+        )
+    )
+
 
     results = []
+
 
     for index, document in enumerate(
         documents,
@@ -66,7 +129,8 @@ def search_document(
                     index,
 
                 "content":
-                    document.content or "",
+                    document.content
+                    or "",
 
                 "score":
                     document.score,
@@ -76,9 +140,14 @@ def search_document(
             }
         )
 
+
     return {
+
         "query":
             query,
+
+        "session_id":
+            session_id,
 
         "result_count":
             len(results),
@@ -95,41 +164,48 @@ def search_document(
 
 @tool
 def get_document_info(
+
     request: Annotated[
         str,
         (
-            "Type of document information requested. "
-            "Use exactly one of: "
+            "Type of document information "
+            "requested. Use exactly one of: "
             "chunk_count, metadata, summary."
         ),
     ],
+
+    state: State,
+
 ) -> dict:
     """
     Get technical information about the
-    currently indexed PDF/document.
+    current session's indexed PDF.
 
-    Always provide the request argument.
-
-    Use:
-
-    request='chunk_count'
-    for the number of indexed document chunks.
-
-    request='metadata'
-    for document metadata.
-
-    request='summary'
-    for general technical information about
-    the indexed document.
+    Always provide request.
     """
 
+    session_id = (
+        _get_session_id(
+            state
+        )
+    )
+
+
     print(
-        "\n[TOOL EXECUTED] get_document_info"
+        "\n[TOOL EXECUTED] "
+        "get_document_info"
     )
 
     print(
-        f"Request: {request}\n"
+        f"Session: "
+        f"{session_id}"
     )
+
+    print(
+        f"Request: "
+        f"{request}\n"
+    )
+
 
     request = (
         request
@@ -137,19 +213,28 @@ def get_document_info(
         .lower()
     )
 
+
     allowed_requests = {
+
         "chunk_count",
+
         "metadata",
+
         "summary",
     }
 
-    if request not in allowed_requests:
+
+    if request not in (
+        allowed_requests
+    ):
 
         return {
-            "error": (
-                f"Unsupported request "
-                f"'{request}'."
-            ),
+
+            "error":
+                (
+                    f"Unsupported request "
+                    f"'{request}'."
+                ),
 
             "allowed_requests":
                 sorted(
@@ -157,13 +242,13 @@ def get_document_info(
                 ),
         }
 
-    # -----------------------------------------------------
-    # Get indexed documents
-    # -----------------------------------------------------
 
     documents = (
-        document_store.filter_documents()
+        get_session_documents(
+            session_id
+        )
     )
+
 
     # =====================================================
     # CHUNK COUNT
@@ -172,38 +257,49 @@ def get_document_info(
     if request == "chunk_count":
 
         return {
+
+            "session_id":
+                session_id,
+
             "indexed_chunk_count":
                 len(documents),
         }
+
 
     # =====================================================
     # METADATA
     # =====================================================
 
+    metadata_examples = [
+
+        document.meta
+
+        for document
+        in documents[:3]
+    ]
+
+
     if request == "metadata":
 
-        metadata_examples = [
-            document.meta
-            for document
-            in documents[:3]
-        ]
-
         return {
+
+            "session_id":
+                session_id,
+
             "metadata_examples":
                 metadata_examples,
         }
+
 
     # =====================================================
     # SUMMARY
     # =====================================================
 
-    metadata_examples = [
-        document.meta
-        for document
-        in documents[:3]
-    ]
-
     return {
+
+        "session_id":
+            session_id,
+
         "indexed_chunk_count":
             len(documents),
 

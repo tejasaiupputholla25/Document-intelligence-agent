@@ -1,3 +1,8 @@
+import hashlib
+
+from pathlib import Path
+
+
 from app.document_processing import (
     process_pdf,
 )
@@ -15,140 +20,68 @@ from app.agent import (
 )
 
 
+from app.db.models import (
+    DatasetRecord,
+    DocumentRecord,
+)
+
+from app.db.repositories import (
+    create_dataset,
+    create_document,
+    create_session,
+)
+
+
+# =========================================================
+# DEVELOPMENT FILES
+# =========================================================
+
+PDF_PATH = Path(
+    "data/sample.pdf"
+)
+
+
+DATASET_PATH = Path(
+    "data/sample_sales.csv"
+)
+
+
+# =========================================================
+# FILE HASH
+# =========================================================
+
+def calculate_sha256(
+    file_path: Path,
+) -> str:
+
+    sha256 = hashlib.sha256()
+
+
+    with file_path.open(
+        "rb"
+    ) as file:
+
+        for chunk in iter(
+            lambda:
+                file.read(
+                    1024 * 1024
+                ),
+            b"",
+        ):
+
+            sha256.update(
+                chunk
+            )
+
+
+    return sha256.hexdigest()
+
+
 # =========================================================
 # MAIN
 # =========================================================
 
 def main():
-
-    # =====================================================
-    # LOCAL DEVELOPMENT FILES
-    # =====================================================
-
-    pdf_path = (
-        "data/sample.pdf"
-    )
-
-    structured_file_path = (
-        "data/sample_sales.csv"
-    )
-
-
-    # =====================================================
-    # PDF PROCESSING
-    # =====================================================
-
-    print(
-        "\n" + "=" * 80
-    )
-
-    print(
-        "PDF PROCESSING"
-    )
-
-    print(
-        "=" * 80
-    )
-
-    print(
-        f"\nProcessing PDF: "
-        f"{pdf_path}"
-    )
-
-
-    # Phase 2
-    chunks = process_pdf(
-        pdf_path
-    )
-
-
-    print(
-        f"PDF chunks created: "
-        f"{len(chunks)}"
-    )
-
-
-    # Phase 3
-    index_documents(
-        chunks
-    )
-
-
-    print(
-        "PDF indexed successfully."
-    )
-
-
-    # =====================================================
-    # STRUCTURED DATA
-    # =====================================================
-
-    print(
-        "\n" + "=" * 80
-    )
-
-    print(
-        "STRUCTURED DATA"
-    )
-
-    print(
-        "=" * 80
-    )
-
-
-    print(
-        f"\nLoading dataset: "
-        f"{structured_file_path}"
-    )
-
-
-    data_info = load_structured_data(
-        structured_file_path
-    )
-
-
-    print(
-        "Dataset loaded successfully."
-    )
-
-
-    print(
-        f"File: "
-        f"{data_info['file_name']}"
-    )
-
-
-    print(
-        f"Rows: "
-        f"{data_info['rows']}"
-    )
-
-
-    print(
-        f"Columns: "
-        f"{data_info['columns']}"
-    )
-
-
-    print(
-        "\nColumn names:"
-    )
-
-
-    for column in (
-        data_info[
-            "column_names"
-        ]
-    ):
-
-        print(
-            f"  - {column}"
-        )
-
-
-    # =====================================================
-    # AGENT
-    # =====================================================
 
     print(
         "\n" + "=" * 80
@@ -159,77 +92,275 @@ def main():
     )
 
     print(
+        "PHASE 9C - SESSION-AWARE CLI"
+    )
+
+    print(
         "=" * 80
     )
 
 
-    print(
-        "\nAgent is ready."
+    # =====================================================
+    # CREATE APPLICATION SESSION
+    # =====================================================
+
+    session = (
+        create_session()
+    )
+
+
+    session_id = str(
+        session.id
     )
 
 
     print(
-        "\nCapabilities:"
-    )
-
-
-    print(
-        "- Search information inside PDF"
+        "\nSession created."
     )
 
     print(
-        "- Inspect PDF metadata"
-    )
-
-    print(
-        "- Inspect CSV/XLSX dataset"
-    )
-
-    print(
-        "- Calculate aggregations"
-    )
-
-    print(
-        "- Perform grouped calculations"
-    )
-
-    print(
-        "- Filter dataset rows"
+        f"Session ID: "
+        f"{session_id}"
     )
 
 
     # =====================================================
-    # QUESTION LOOP
+    # PDF
     # =====================================================
+
+    if PDF_PATH.exists():
+
+        print(
+            "\nProcessing PDF..."
+        )
+
+
+        chunks = (
+            process_pdf(
+                str(
+                    PDF_PATH
+                )
+            )
+        )
+
+
+        print(
+            f"Chunks created: "
+            f"{len(chunks)}"
+        )
+
+
+        # -------------------------------------------------
+        # Store application metadata first.
+        # -------------------------------------------------
+
+        document_record = (
+            DocumentRecord(
+
+                session_id=
+                    session.id,
+
+                file_name=
+                    PDF_PATH.name,
+
+                stored_path=
+                    str(
+                        PDF_PATH.resolve()
+                    ),
+
+                sha256=
+                    calculate_sha256(
+                        PDF_PATH
+                    ),
+
+                chunk_count=
+                    len(chunks),
+
+                status=
+                    "ready",
+            )
+        )
+
+
+        document_record = (
+            create_document(
+                document_record
+            )
+        )
+
+
+        # -------------------------------------------------
+        # Store session-tagged vectors
+        # -------------------------------------------------
+
+        index_documents(
+
+            documents=
+                chunks,
+
+            session_id=
+                session_id,
+
+            document_id=
+                str(
+                    document_record.id
+                ),
+
+            source_file=
+                PDF_PATH.name,
+        )
+
+
+        print(
+            "PDF indexed into "
+            "session-aware pgvector storage."
+        )
+
+
+    else:
+
+        print(
+            "\nPDF not found:"
+        )
+
+        print(
+            PDF_PATH
+        )
+
+
+    # =====================================================
+    # DATASET
+    # =====================================================
+
+    if DATASET_PATH.exists():
+
+        print(
+            "\nLoading dataset..."
+        )
+
+
+        data_info = (
+            load_structured_data(
+                str(
+                    DATASET_PATH
+                )
+            )
+        )
+
+
+        dataset_record = (
+            DatasetRecord(
+
+                session_id=
+                    session.id,
+
+                file_name=
+                    DATASET_PATH.name,
+
+                stored_path=
+                    str(
+                        DATASET_PATH.resolve()
+                    ),
+
+                sha256=
+                    calculate_sha256(
+                        DATASET_PATH
+                    ),
+
+                row_count=
+                    data_info[
+                        "rows"
+                    ],
+
+                column_count=
+                    data_info[
+                        "columns"
+                    ],
+
+                column_names=
+                    data_info[
+                        "column_names"
+                    ],
+
+                status=
+                    "ready",
+            )
+        )
+
+
+        create_dataset(
+            dataset_record
+        )
+
+
+        print(
+            "Dataset registered "
+            "for this session."
+        )
+
+        print(
+            f"Rows: "
+            f"{data_info['rows']}"
+        )
+
+        print(
+            f"Columns: "
+            f"{data_info['columns']}"
+        )
+
+
+    else:
+
+        print(
+            "\nDataset not found:"
+        )
+
+        print(
+            DATASET_PATH
+        )
+
+
+    # =====================================================
+    # CHAT LOOP
+    # =====================================================
+
+    print(
+        "\n" + "=" * 80
+    )
+
+    print(
+        "READY"
+    )
+
+    print(
+        "Type 'exit' to stop."
+    )
+
+    print(
+        "=" * 80
+    )
+
 
     while True:
 
         question = input(
-            "\nAsk a question "
-            "(or type 'exit'): "
-        )
+            "\nAsk a question: "
+        ).strip()
 
 
-        question = (
-            question.strip()
-        )
-
-
-        if question.lower() == "exit":
+        if question.lower() in {
+            "exit",
+            "quit",
+        }:
 
             print(
-                "\nExiting Document "
-                "Intelligence Agent."
+                "\nGoodbye."
             )
 
             break
 
 
         if not question:
-
-            print(
-                "Please enter a question."
-            )
 
             continue
 
@@ -238,7 +369,12 @@ def main():
 
             answer = (
                 run_document_agent(
-                    question
+
+                    question=
+                        question,
+
+                    session_id=
+                        session_id,
                 )
             )
 
@@ -247,19 +383,18 @@ def main():
                 "\n" + "=" * 80
             )
 
-
             print(
-                "\nAGENT ANSWER:\n"
+                "AGENT ANSWER:"
             )
 
+            print()
 
             print(
                 answer
             )
 
-
             print(
-                "\n" + "=" * 80
+                "=" * 80
             )
 
 

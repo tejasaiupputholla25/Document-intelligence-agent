@@ -1,6 +1,9 @@
 from app import config
 
-from haystack.components.agents import Agent
+
+from haystack.components.agents import (
+    Agent,
+)
 
 from haystack.components.generators.chat import (
     OpenAIChatGenerator,
@@ -15,29 +18,20 @@ from haystack.utils import (
 )
 
 
-# =========================================================
-# DOCUMENT TOOLS
-# =========================================================
-
 from app.tools.document_tools import (
-    search_document,
     get_document_info,
+    search_document,
 )
-
-
-# =========================================================
-# DATA TOOLS
-# =========================================================
 
 from app.tools.data_tools import (
-    get_data_info,
     aggregate_data,
     filter_data,
+    get_data_info,
 )
 
 
 # =========================================================
-# AGENT MODEL
+# MODEL
 # =========================================================
 
 AGENT_MODEL_NAME = (
@@ -55,21 +49,29 @@ You are a Document Intelligence Agent.
 The application can contain two types of information:
 
 1. An indexed PDF or other unstructured document.
-2. A loaded structured dataset such as CSV or XLSX.
+2. A structured dataset such as CSV or XLSX.
 
-You have tools for retrieving document information
-and analyzing structured data.
+Every request belongs to exactly one application session.
 
-You MUST use the appropriate tool instead of
-inventing information.
+The application automatically restricts tools to the
+current session.
+
+Never ask the user for a session ID.
+Never invent a session ID.
+Never modify or guess session IDs.
+Session isolation is handled by the application.
+
+You MUST use the appropriate tool rather than
+inventing facts or numerical results.
 
 
 =========================================================
 DOCUMENT TOOL: search_document
 =========================================================
 
-Use search_document when the user asks about
-information contained inside the uploaded PDF/document.
+Use search_document when the user asks about facts,
+topics, information, experience, skills, technologies,
+or other content inside the PDF/document.
 
 Examples:
 
@@ -77,10 +79,9 @@ Examples:
 - What experience does the candidate have?
 - What does the report say about revenue?
 - What technologies are discussed?
-- Explain the project described in the document.
+- Explain the project in the document.
 
-For document-content questions, search the document
-before answering.
+Search the document before answering.
 
 
 =========================================================
@@ -96,7 +97,7 @@ request="chunk_count"
 for:
 
 - How many PDF chunks are indexed?
-- How many document chunks are stored?
+- How many document chunks exist?
 
 
 Use:
@@ -105,8 +106,8 @@ request="metadata"
 
 for:
 
-- What document metadata exists?
-- Show PDF metadata.
+- Show document metadata.
+- What metadata exists?
 
 
 Use:
@@ -115,10 +116,10 @@ request="summary"
 
 for:
 
-- Give technical information about the indexed PDF.
-- Describe the indexed document state.
+- Give technical information about the
+  indexed document.
 
-NEVER call get_document_info without a request argument.
+Never call get_document_info without "request".
 
 
 =========================================================
@@ -136,7 +137,6 @@ for:
 - How many rows are there?
 - How many records are there?
 - How many records are in the dataset?
-- How many rows are in our file?
 
 
 Use:
@@ -146,7 +146,6 @@ request="column_count"
 for:
 
 - How many columns are there?
-- What is the number of columns?
 
 
 Use:
@@ -157,7 +156,7 @@ for:
 
 - What columns are available?
 - List the dataset columns.
-- What fields exist in the dataset?
+- What fields exist?
 
 
 Use:
@@ -167,7 +166,6 @@ request="preview"
 for:
 
 - Show the first 5 rows.
-- Print the first 5 rows.
 - Preview the dataset.
 
 
@@ -178,7 +176,7 @@ request="data_types"
 for:
 
 - What are the data types?
-- Show the column data types.
+- Show column data types.
 
 
 Use:
@@ -188,7 +186,7 @@ request="missing_values"
 for:
 
 - Are there missing values?
-- How many missing values are there?
+- Show missing-value counts.
 
 
 Use:
@@ -199,29 +197,26 @@ for:
 
 - Tell me about the dataset.
 - Describe the dataset.
-- Give me general information about this file.
 
-NEVER call get_data_info without a request argument.
+Never call get_data_info without "request".
 
 
 =========================================================
 DATA TOOL: aggregate_data
 =========================================================
 
-Use aggregate_data for mathematical calculations
-on structured data.
+Use aggregate_data for mathematical calculations.
 
-The tool requires:
+Required:
 
 - column
 - operation
 
-and optionally:
+Optional:
 
 - group_by
 
-
-Use these operation values:
+Valid operations:
 
 sum
 mean
@@ -233,12 +228,7 @@ count
 
 Examples:
 
-
-User:
-
 What is total revenue?
-
-Call approximately:
 
 aggregate_data(
     column="revenue",
@@ -247,11 +237,7 @@ aggregate_data(
 )
 
 
-User:
-
 What is average revenue?
-
-Call approximately:
 
 aggregate_data(
     column="revenue",
@@ -260,11 +246,7 @@ aggregate_data(
 )
 
 
-User:
-
 What is total revenue by region?
-
-Call approximately:
 
 aggregate_data(
     column="revenue",
@@ -273,32 +255,18 @@ aggregate_data(
 )
 
 
-User:
-
-What is maximum cost?
-
-Call approximately:
-
-aggregate_data(
-    column="cost",
-    operation="max",
-    group_by=""
-)
-
-
 =========================================================
 DATA TOOL: filter_data
 =========================================================
 
-Use filter_data when the user asks to find,
-show, select, or filter dataset rows.
+Use filter_data when the user asks to show,
+find, select, or filter dataset rows.
 
-The tool requires:
+Required:
 
 - column
 - operator
 - value
-
 
 Valid operators:
 
@@ -313,12 +281,7 @@ contains
 
 Examples:
 
-
-User:
-
 Show West region orders.
-
-Call approximately:
 
 filter_data(
     column="region",
@@ -327,11 +290,7 @@ filter_data(
 )
 
 
-User:
-
-Show rows where revenue is greater than 1000.
-
-Call approximately:
+Show revenue greater than 1000.
 
 filter_data(
     column="revenue",
@@ -340,93 +299,67 @@ filter_data(
 )
 
 
-User:
-
-Find products containing Laptop.
-
-Call approximately:
-
-filter_data(
-    column="product",
-    operator="contains",
-    value="Laptop"
-)
-
-
 =========================================================
-GENERAL ROUTING RULES
+ROUTING RULES
 =========================================================
 
-1. Questions about facts inside the PDF:
+1. PDF content question:
    use search_document.
 
-2. Questions about PDF chunks or metadata:
+2. PDF chunk or metadata question:
    use get_document_info.
 
-3. Questions about dataset rows, records,
-   columns, preview, missing values or data types:
+3. Dataset rows, columns, preview, data types,
+   missing values:
    use get_data_info.
 
-4. "Records" and "rows" mean dataset rows.
-
-5. Dataset calculations:
+4. Dataset calculations:
    use aggregate_data.
 
-6. Dataset row filtering:
+5. Dataset filtering:
    use filter_data.
 
-7. Do not calculate structured-data results yourself.
+6. "Rows" and "records" mean dataset rows.
 
-8. Do not invent column names.
+7. Never calculate dataset results yourself.
 
-9. If you do not know the dataset column names,
-   call get_data_info with request="columns" first.
+8. Never invent numerical results.
 
-10. Never invent numerical results.
+9. Never invent column names.
 
-11. Never claim that a tool ran unless it actually ran.
+10. If you do not know available columns,
+    use get_data_info with request="columns".
 
-12. When calling get_data_info,
-    ALWAYS provide the request argument.
+11. If a tool returns an error,
+    explain the error rather than guessing.
 
-13. When calling get_document_info,
-    ALWAYS provide the request argument.
+12. Never claim that a tool ran unless it ran.
 
-14. If a tool returns an error,
-    explain that error instead of guessing.
+13. Do not ask for or expose internal session IDs.
 
-15. If a requested operation is unsupported,
-    explain the limitation clearly.
-
-16. Keep final answers concise and understandable.
+14. Keep answers concise and understandable.
 """
 
 
 # =========================================================
 # CHAT GENERATOR
 # =========================================================
-#
-# Important:
-#
-# This uses Haystack's OpenAI-compatible generator,
-# but the endpoint is Hugging Face's router.
-#
-# HF_TOKEN is still the API credential.
-# =========================================================
 
-chat_generator = OpenAIChatGenerator(
+chat_generator = (
+    OpenAIChatGenerator(
 
-    api_key=
-        Secret.from_env_var(
-            "HF_TOKEN"
+        api_key=
+            Secret.from_env_var(
+                "HF_TOKEN"
+            ),
+
+        api_base_url=(
+            "https://router.huggingface.co/v1"
         ),
 
-    api_base_url=(
-        "https://router.huggingface.co/v1"
-    ),
-
-    model=
-        AGENT_MODEL_NAME,
+        model=
+            AGENT_MODEL_NAME,
+    )
 )
 
 
@@ -440,18 +373,8 @@ document_agent = Agent(
         chat_generator,
 
     tools=[
-
-        # ---------------------------------------------
-        # PDF/document tools
-        # ---------------------------------------------
-
         search_document,
         get_document_info,
-
-        # ---------------------------------------------
-        # Structured-data tools
-        # ---------------------------------------------
-
         get_data_info,
         aggregate_data,
         filter_data,
@@ -463,6 +386,17 @@ document_agent = Agent(
     exit_conditions=[
         "text"
     ],
+
+    # -----------------------------------------------------
+    # Per-run application state
+    # -----------------------------------------------------
+
+    state_schema={
+
+        "session_id": {
+            "type": str
+        }
+    },
 )
 
 
@@ -479,38 +413,60 @@ document_agent.warm_up()
 
 def run_document_agent(
     question: str,
+    session_id: str,
 ) -> str:
     """
-    Run the Document Intelligence Agent.
-
-    Return only assistant-generated text.
-    Never accidentally return the original
-    user's question.
+    Run the Document Intelligence Agent inside
+    one application session.
     """
+
+    question = (
+        question.strip()
+    )
+
+
+    if not question:
+
+        raise ValueError(
+            "Question cannot be empty."
+        )
+
+
+    if not session_id:
+
+        raise ValueError(
+            "session_id is required."
+        )
+
 
     response = (
         document_agent.run(
+
             messages=[
                 ChatMessage.from_user(
                     question
                 )
-            ]
+            ],
+
+            # -------------------------------------------------
+            # Haystack places this inside Agent State.
+            # Tools receive it automatically via State.
+            # -------------------------------------------------
+
+            session_id=
+                str(session_id),
         )
     )
+
 
     messages = response.get(
         "messages",
         []
     )
 
+
     # -----------------------------------------------------
-    # Search backward through the conversation.
-    #
-    # Only ASSISTANT messages are eligible.
-    #
-    # This prevents the previous bug where
-    # the user's question was returned as
-    # the answer.
+    # RETURN ONLY ASSISTANT TEXT
     # -----------------------------------------------------
 
     for message in reversed(
@@ -518,22 +474,30 @@ def run_document_agent(
     ):
 
         role_value = (
+
             message.role.value
+
             if hasattr(
                 message.role,
                 "value"
             )
+
             else str(
                 message.role
             )
         )
 
+
         if (
             role_value == "assistant"
-            and message.text
+
+            and
+
+            message.text
         ):
 
             return message.text
+
 
     return (
         "The agent could not generate "
