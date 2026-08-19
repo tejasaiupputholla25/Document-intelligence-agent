@@ -7,22 +7,31 @@ from fastapi import (
     UploadFile,
 )
 
+from app.config import (
+    BASE_DIR,
+)
+
 
 # =========================================================
-# SETTINGS
+# UPLOAD LOCATION
 # =========================================================
 
-UPLOAD_DIRECTORY = (
-    Path("uploads")
+UPLOAD_ROOT = (
+    BASE_DIR
+    / "uploads"
     / "api"
 )
 
 
-UPLOAD_DIRECTORY.mkdir(
+UPLOAD_ROOT.mkdir(
     parents=True,
     exist_ok=True,
 )
 
+
+# =========================================================
+# SIZE LIMIT
+# =========================================================
 
 MAX_FILE_SIZE_MB = 20
 
@@ -35,24 +44,32 @@ MAX_FILE_SIZE_BYTES = (
 
 
 # =========================================================
-# SAVE FILE
+# SAVE UPLOAD
 # =========================================================
 
 def save_upload(
     upload_file: UploadFile,
     allowed_extensions: set[str],
-) -> tuple[Path, str]:
+    session_id: str,
+) -> tuple[
+    Path,
+    str,
+    str,
+]:
     """
-    Validate and save an uploaded file.
+    Validate and save a file into:
+
+    uploads/api/<session_id>/
 
     Returns:
 
     saved_path
-    file_hash
+    sha256
+    safe_file_name
     """
 
     # -----------------------------------------------------
-    # Validate filename
+    # FILENAME
     # -----------------------------------------------------
 
     if not upload_file.filename:
@@ -66,20 +83,17 @@ def save_upload(
         )
 
 
-    # -----------------------------------------------------
-    # Strip path information
-    #
-    # ../../../something.pdf
-    #
-    # becomes:
-    #
-    # something.pdf
-    # -----------------------------------------------------
+    safe_file_name = (
+        Path(
+            upload_file.filename
+        )
+        .name
+    )
 
-    safe_file_name = Path(
-        upload_file.filename
-    ).name
 
+    # -----------------------------------------------------
+    # EXTENSION
+    # -----------------------------------------------------
 
     extension = (
         Path(
@@ -90,11 +104,9 @@ def save_upload(
     )
 
 
-    # -----------------------------------------------------
-    # Validate extension
-    # -----------------------------------------------------
-
-    if extension not in allowed_extensions:
+    if extension not in (
+        allowed_extensions
+    ):
 
         raise HTTPException(
             status_code=400,
@@ -108,7 +120,7 @@ def save_upload(
 
 
     # -----------------------------------------------------
-    # Read uploaded bytes
+    # READ FILE
     # -----------------------------------------------------
 
     file_bytes = (
@@ -117,10 +129,6 @@ def save_upload(
         .read()
     )
 
-
-    # -----------------------------------------------------
-    # Validate empty file
-    # -----------------------------------------------------
 
     if not file_bytes:
 
@@ -133,7 +141,7 @@ def save_upload(
 
 
     # -----------------------------------------------------
-    # Validate size
+    # SIZE
     # -----------------------------------------------------
 
     if (
@@ -151,7 +159,7 @@ def save_upload(
 
 
     # -----------------------------------------------------
-    # Calculate hash
+    # HASH
     # -----------------------------------------------------
 
     file_hash = (
@@ -164,7 +172,25 @@ def save_upload(
 
 
     # -----------------------------------------------------
-    # Unique filename
+    # SESSION DIRECTORY
+    # -----------------------------------------------------
+
+    session_directory = (
+        UPLOAD_ROOT
+        / str(
+            session_id
+        )
+    )
+
+
+    session_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+
+    # -----------------------------------------------------
+    # STORED NAME
     # -----------------------------------------------------
 
     stored_file_name = (
@@ -174,14 +200,10 @@ def save_upload(
 
 
     saved_path = (
-        UPLOAD_DIRECTORY
+        session_directory
         / stored_file_name
     )
 
-
-    # -----------------------------------------------------
-    # Save
-    # -----------------------------------------------------
 
     saved_path.write_bytes(
         file_bytes
@@ -189,6 +211,7 @@ def save_upload(
 
 
     return (
-        saved_path,
+        saved_path.resolve(),
         file_hash,
+        safe_file_name,
     )

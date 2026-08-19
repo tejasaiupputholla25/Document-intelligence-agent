@@ -1,7 +1,9 @@
 from uuid import UUID
 
 from sqlalchemy import (
+    delete,
     select,
+    update,
 )
 
 from app.db.database import (
@@ -17,7 +19,7 @@ from app.db.models import (
 
 
 # =========================================================
-# SESSION REPOSITORY
+# SESSION
 # =========================================================
 
 def create_session() -> SessionRecord:
@@ -52,7 +54,7 @@ def get_session(
 
 
 # =========================================================
-# DOCUMENT REPOSITORY
+# DOCUMENT
 # =========================================================
 
 def create_document(
@@ -81,7 +83,6 @@ def get_latest_document(
     with SessionLocal() as database:
 
         statement = (
-
             select(
                 DocumentRecord
             )
@@ -89,6 +90,11 @@ def get_latest_document(
             .where(
                 DocumentRecord.session_id
                 == session_id
+            )
+
+            .where(
+                DocumentRecord.status
+                == "ready"
             )
 
             .order_by(
@@ -108,8 +114,85 @@ def get_latest_document(
         )
 
 
+def get_ready_documents(
+    session_id: UUID,
+) -> list[DocumentRecord]:
+
+    with SessionLocal() as database:
+
+        statement = (
+            select(
+                DocumentRecord
+            )
+
+            .where(
+                DocumentRecord.session_id
+                == session_id
+            )
+
+            .where(
+                DocumentRecord.status
+                == "ready"
+            )
+
+            .order_by(
+                DocumentRecord.created_at.asc()
+            )
+        )
+
+
+        return list(
+            database.scalars(
+                statement
+            )
+        )
+
+
+def mark_documents_replaced(
+    session_id: UUID,
+    keep_document_id: UUID | None = None,
+) -> None:
+
+    with SessionLocal() as database:
+
+        statement = (
+            update(
+                DocumentRecord
+            )
+
+            .where(
+                DocumentRecord.session_id
+                == session_id
+            )
+
+            .where(
+                DocumentRecord.status
+                == "ready"
+            )
+        )
+
+
+        if keep_document_id is not None:
+
+            statement = (
+                statement.where(
+                    DocumentRecord.id
+                    != keep_document_id
+                )
+            )
+
+
+        database.execute(
+            statement.values(
+                status="replaced"
+            )
+        )
+
+        database.commit()
+
+
 # =========================================================
-# DATASET REPOSITORY
+# DATASET
 # =========================================================
 
 def create_dataset(
@@ -138,7 +221,6 @@ def get_latest_dataset(
     with SessionLocal() as database:
 
         statement = (
-
             select(
                 DatasetRecord
             )
@@ -146,6 +228,11 @@ def get_latest_dataset(
             .where(
                 DatasetRecord.session_id
                 == session_id
+            )
+
+            .where(
+                DatasetRecord.status
+                == "ready"
             )
 
             .order_by(
@@ -165,8 +252,51 @@ def get_latest_dataset(
         )
 
 
+def mark_datasets_replaced(
+    session_id: UUID,
+    keep_dataset_id: UUID | None = None,
+) -> None:
+
+    with SessionLocal() as database:
+
+        statement = (
+            update(
+                DatasetRecord
+            )
+
+            .where(
+                DatasetRecord.session_id
+                == session_id
+            )
+
+            .where(
+                DatasetRecord.status
+                == "ready"
+            )
+        )
+
+
+        if keep_dataset_id is not None:
+
+            statement = (
+                statement.where(
+                    DatasetRecord.id
+                    != keep_dataset_id
+                )
+            )
+
+
+        database.execute(
+            statement.values(
+                status="replaced"
+            )
+        )
+
+        database.commit()
+
+
 # =========================================================
-# CHAT REPOSITORY
+# CHAT
 # =========================================================
 
 def save_chat_message(
@@ -177,16 +307,18 @@ def save_chat_message(
 
     with SessionLocal() as database:
 
-        message = ChatMessageRecord(
+        message = (
+            ChatMessageRecord(
 
-            session_id=
-                session_id,
+                session_id=
+                    session_id,
 
-            role=
-                role,
+                role=
+                    role,
 
-            content=
-                content,
+                content=
+                    content,
+            )
         )
 
 
@@ -200,7 +332,6 @@ def save_chat_message(
             message
         )
 
-
         return message
 
 
@@ -211,7 +342,6 @@ def get_chat_messages(
     with SessionLocal() as database:
 
         statement = (
-
             select(
                 ChatMessageRecord
             )
@@ -228,8 +358,32 @@ def get_chat_messages(
 
 
         return list(
-
             database.scalars(
                 statement
             )
         )
+
+
+def delete_chat_messages(
+    session_id: UUID,
+) -> None:
+
+    with SessionLocal() as database:
+
+        statement = (
+            delete(
+                ChatMessageRecord
+            )
+
+            .where(
+                ChatMessageRecord.session_id
+                == session_id
+            )
+        )
+
+
+        database.execute(
+            statement
+        )
+
+        database.commit()

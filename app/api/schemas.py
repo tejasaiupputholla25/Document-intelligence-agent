@@ -1,14 +1,143 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from typing import Any
+
+from uuid import UUID
+
+from pydantic import (
+    BaseModel,
+    Field,
+)
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+class HealthResponse(
+    BaseModel
+):
+
+    status: str
+
+    service: str
+
+
+# =========================================================
+# SESSION
+# =========================================================
+
+class SessionCreateResponse(
+    BaseModel
+):
+
+    session_id: UUID
+
+    created_at: datetime
+
+
+# =========================================================
+# DOCUMENT
+# =========================================================
+
+class DocumentStatus(
+    BaseModel
+):
+
+    ready: bool
+
+    document_id: UUID | None = None
+
+    file_name: str | None = None
+
+    chunk_count: int = 0
+
+    created_at: datetime | None = None
+
+
+class DocumentUploadResponse(
+    BaseModel
+):
+
+    message: str
+
+    document: DocumentStatus
+
+
+# =========================================================
+# DATASET
+# =========================================================
+
+class DatasetStatus(
+    BaseModel
+):
+
+    ready: bool
+
+    dataset_id: UUID | None = None
+
+    file_name: str | None = None
+
+    rows: int = 0
+
+    columns: int = 0
+
+    column_names: list[str] = Field(
+        default_factory=list
+    )
+
+    created_at: datetime | None = None
+
+
+class DatasetUploadResponse(
+    BaseModel
+):
+
+    message: str
+
+    dataset: DatasetStatus
+
+
+class DatasetPreviewResponse(
+    BaseModel
+):
+
+    file_name: str
+
+    returned_rows: int
+
+    rows: list[
+        dict[
+            str,
+            Any,
+        ]
+    ] = Field(
+        default_factory=list
+    )
+
+
+# =========================================================
+# SESSION STATUS
+# =========================================================
+
+class SessionStatusResponse(
+    BaseModel
+):
+
+    session_id: UUID
+
+    document: DocumentStatus
+
+    dataset: DatasetStatus
 
 
 # =========================================================
 # CHAT
 # =========================================================
 
-class ChatRequest(BaseModel):
-    """
-    JSON body expected by the chat endpoint.
-    """
+class ChatRequest(
+    BaseModel
+):
 
     question: str = Field(
         min_length=1,
@@ -16,55 +145,39 @@ class ChatRequest(BaseModel):
     )
 
 
-class ChatResponse(BaseModel):
-    """
-    JSON returned by the chat endpoint.
-    """
+class ChatResponse(
+    BaseModel
+):
 
     answer: str
 
 
-# =========================================================
-# HEALTH
-# =========================================================
+class ChatMessageResponse(
+    BaseModel
+):
 
-class HealthResponse(BaseModel):
+    role: str
 
-    status: str
-    service: str
+    content: str
 
-
-# =========================================================
-# PDF STATUS
-# =========================================================
-
-class PDFStatus(BaseModel):
-
-    ready: bool
-    file_name: str | None = None
-    chunk_count: int = 0
-    file_hash: str | None = None
+    created_at: datetime
 
 
-# =========================================================
-# DATASET STATUS
-# =========================================================
+class ChatHistoryResponse(
+    BaseModel
+):
 
-class DatasetStatus(BaseModel):
+    session_id: UUID
 
-    ready: bool
-    file_name: str | None = None
-    rows: int = 0
-    columns: int = 0
-    column_names: list[str] = []
-    file_hash: str | None = None
+    messages: list[
+        ChatMessageResponse
+    ] = Field(
+        default_factory=list
+    )
 
 
-# =========================================================
-# APPLICATION STATUS
-# =========================================================
+class DeleteChatResponse(
+    BaseModel
+):
 
-class ApplicationStatus(BaseModel):
-
-    pdf: PDFStatus
-    dataset: DatasetStatus
+    message: str

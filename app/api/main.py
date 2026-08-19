@@ -1,10 +1,26 @@
 import json
 
+from contextlib import (
+    asynccontextmanager,
+)
+
+from uuid import (
+    UUID,
+    uuid4,
+)
+
+
 from fastapi import (
     FastAPI,
+    File,
     HTTPException,
     Query,
     UploadFile,
+)
+
+
+from app.agent import (
+    run_document_agent,
 )
 
 
@@ -14,20 +30,41 @@ from app.document_processing import (
 
 
 from app.semantic_search import (
+    delete_document_chunks,
     index_documents,
-    clear_document_store,
 )
 
 
 from app.structured_data import (
+    get_dataframe_for_session,
     load_structured_data,
-    clear_structured_data,
-    get_current_dataframe,
 )
 
 
-from app.agent import (
-    run_document_agent,
+from app.db.database import (
+    create_database_tables,
+)
+
+
+from app.db.models import (
+    DatasetRecord,
+    DocumentRecord,
+)
+
+
+from app.db.repositories import (
+    create_dataset,
+    create_document,
+    create_session,
+    delete_chat_messages,
+    get_chat_messages,
+    get_latest_dataset,
+    get_latest_document,
+    get_ready_documents,
+    get_session,
+    mark_datasets_replaced,
+    mark_documents_replaced,
+    save_chat_message,
 )
 
 
@@ -37,18 +74,33 @@ from app.api.file_utils import (
 
 
 from app.api.schemas import (
-    ApplicationStatus,
+    ChatHistoryResponse,
     ChatRequest,
     ChatResponse,
+    DatasetPreviewResponse,
+    DatasetStatus,
+    DatasetUploadResponse,
+    DeleteChatResponse,
+    DocumentStatus,
+    DocumentUploadResponse,
     HealthResponse,
+    SessionCreateResponse,
+    SessionStatusResponse,
 )
 
 
-from app.api.state import (
-    runtime_state,
-    reset_dataset_state,
-    reset_pdf_state,
-)
+# =========================================================
+# APPLICATION LIFESPAN
+# =========================================================
+
+@asynccontextmanager
+async def lifespan(
+    app: FastAPI,
+):
+
+    create_database_tables()
+
+    yield
 
 
 # =========================================================
@@ -62,12 +114,134 @@ app = FastAPI(
     ),
 
     description=(
-        "Backend API for document question answering "
-        "and structured-data analysis."
+        "Persistent session-aware backend "
+        "for PDF intelligence and "
+        "structured-data analysis."
     ),
 
-    version="1.0.0",
+    version=
+        "2.0.0",
+
+    lifespan=
+        lifespan,
 )
+
+
+# =========================================================
+# SESSION VALIDATION
+# =========================================================
+
+def require_session(
+    session_id: UUID,
+):
+
+    session = (
+        get_session(
+            session_id
+        )
+    )
+
+
+    if session is None:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Application session "
+                "was not found."
+            ),
+        )
+
+
+    return session
+
+
+# =========================================================
+# DOCUMENT STATUS
+# =========================================================
+
+def build_document_status(
+    session_id: UUID,
+) -> DocumentStatus:
+
+    document = (
+        get_latest_document(
+            session_id
+        )
+    )
+
+
+    if document is None:
+
+        return DocumentStatus(
+            ready=False
+        )
+
+
+    return DocumentStatus(
+
+        ready=
+            True,
+
+        document_id=
+            document.id,
+
+        file_name=
+            document.file_name,
+
+        chunk_count=
+            document.chunk_count,
+
+        created_at=
+            document.created_at,
+    )
+
+
+# =========================================================
+# DATASET STATUS
+# =========================================================
+
+def build_dataset_status(
+    session_id: UUID,
+) -> DatasetStatus:
+
+    dataset = (
+        get_latest_dataset(
+            session_id
+        )
+    )
+
+
+    if dataset is None:
+
+        return DatasetStatus(
+            ready=False
+        )
+
+
+    return DatasetStatus(
+
+        ready=
+            True,
+
+        dataset_id=
+            dataset.id,
+
+        file_name=
+            dataset.file_name,
+
+        rows=
+            dataset.row_count,
+
+        columns=
+            dataset.column_count,
+
+        column_names=
+            dataset.column_names,
+
+        created_at=
+            dataset.created_at,
+    )
 
 
 # =========================================================
@@ -76,36 +250,98 @@ app = FastAPI(
 
 @app.get(
     "/health",
-    response_model=HealthResponse,
+
+    response_model=
+        HealthResponse,
+
     tags=[
         "System"
     ],
 )
 def health_check():
 
-    return {
-        "status":
+    return HealthResponse(
+
+        status=
             "ok",
 
-        "service":
+        service=
             "document-intelligence-api",
-    }
+    )
 
 
 # =========================================================
-# STATUS
+# CREATE SESSION
+# =========================================================
+
+@app.post(
+    "/api/v1/sessions",
+
+    response_model=
+        SessionCreateResponse,
+
+    status_code=
+        201,
+
+    tags=[
+        "Sessions"
+    ],
+)
+def create_application_session():
+
+    session = (
+        create_session()
+    )
+
+
+    return SessionCreateResponse(
+
+        session_id=
+            session.id,
+
+        created_at=
+            session.created_at,
+    )
+
+
+# =========================================================
+# SESSION STATUS
 # =========================================================
 
 @app.get(
-    "/api/v1/status",
-    response_model=ApplicationStatus,
+    "/api/v1/sessions/{session_id}/status",
+
+    response_model=
+        SessionStatusResponse,
+
     tags=[
-        "System"
+        "Sessions"
     ],
 )
-def application_status():
+def session_status(
+    session_id: UUID,
+):
 
-    return runtime_state
+    require_session(
+        session_id
+    )
+
+
+    return SessionStatusResponse(
+
+        session_id=
+            session_id,
+
+        document=
+            build_document_status(
+                session_id
+            ),
+
+        dataset=
+            build_dataset_status(
+                session_id
+            ),
+    )
 
 
 # =========================================================
@@ -113,70 +349,99 @@ def application_status():
 # =========================================================
 
 @app.post(
-    "/api/v1/documents/upload",
+    "/api/v1/sessions/{session_id}/documents/upload",
+
+    response_model=
+        DocumentUploadResponse,
+
     tags=[
         "Documents"
     ],
 )
 def upload_pdf(
-    file: UploadFile,
+
+    session_id: UUID,
+
+    file: UploadFile = File(...),
 ):
+
+    require_session(
+        session_id
+    )
+
+
+    new_document_id = None
+
 
     try:
 
         # -------------------------------------------------
-        # Save upload
+        # SAVE FILE
         # -------------------------------------------------
 
-        saved_path, file_hash = (
-            save_upload(
-                upload_file=file,
-                allowed_extensions={
-                    ".pdf"
-                },
-            )
+        (
+            saved_path,
+            file_hash,
+            safe_file_name,
+        ) = save_upload(
+
+            upload_file=
+                file,
+
+            allowed_extensions={
+                ".pdf"
+            },
+
+            session_id=
+                str(
+                    session_id
+                ),
         )
 
 
         # -------------------------------------------------
-        # Same file already indexed
+        # CHECK EXISTING ACTIVE PDF
         # -------------------------------------------------
 
+        current_document = (
+            get_latest_document(
+                session_id
+            )
+        )
+
+
         if (
-            runtime_state["pdf"]["ready"]
+            current_document is not None
+
             and
-            runtime_state["pdf"]["file_hash"]
+
+            current_document.sha256
             == file_hash
         ):
 
-            return {
-                "message":
-                    "PDF is already processed.",
+            return DocumentUploadResponse(
 
-                "pdf":
-                    runtime_state[
-                        "pdf"
-                    ],
-            }
+                message=(
+                    "PDF is already processed "
+                    "for this session."
+                ),
 
-
-        # -------------------------------------------------
-        # Clear previous PDF
-        # -------------------------------------------------
-
-        clear_document_store()
-
-        reset_pdf_state()
+                document=
+                    build_document_status(
+                        session_id
+                    ),
+            )
 
 
         # -------------------------------------------------
-        # Phase 2:
-        # PDF -> chunks
+        # PROCESS PDF
         # -------------------------------------------------
 
-        chunks = process_pdf(
-            str(
-                saved_path
+        chunks = (
+            process_pdf(
+                str(
+                    saved_path
+                )
             )
         )
 
@@ -193,44 +458,134 @@ def upload_pdf(
 
 
         # -------------------------------------------------
-        # Phase 3:
-        # chunks -> vectors
+        # CREATE NEW DOCUMENT ID
         # -------------------------------------------------
 
-        index_documents(
-            chunks
+        new_document_id = (
+            uuid4()
         )
 
 
         # -------------------------------------------------
-        # Update state
+        # SAVE OLD ACTIVE DOCUMENT REFERENCES
         # -------------------------------------------------
 
-        runtime_state["pdf"] = {
-
-            "ready":
-                True,
-
-            "file_name":
-                file.filename,
-
-            "file_hash":
-                file_hash,
-
-            "chunk_count":
-                len(chunks),
-        }
+        previous_documents = (
+            get_ready_documents(
+                session_id
+            )
+        )
 
 
-        return {
-            "message":
-                "PDF processed successfully.",
+        # -------------------------------------------------
+        # INDEX NEW SESSION-SCOPED VECTORS
+        # -------------------------------------------------
 
-            "pdf":
-                runtime_state[
-                    "pdf"
-                ],
-        }
+        index_documents(
+
+            documents=
+                chunks,
+
+            session_id=
+                str(
+                    session_id
+                ),
+
+            document_id=
+                str(
+                    new_document_id
+                ),
+
+            source_file=
+                safe_file_name,
+        )
+
+
+        # -------------------------------------------------
+        # CREATE METADATA RECORD
+        # -------------------------------------------------
+
+        document_record = (
+            DocumentRecord(
+
+                id=
+                    new_document_id,
+
+                session_id=
+                    session_id,
+
+                file_name=
+                    safe_file_name,
+
+                stored_path=
+                    str(
+                        saved_path
+                    ),
+
+                sha256=
+                    file_hash,
+
+                chunk_count=
+                    len(chunks),
+
+                status=
+                    "ready",
+            )
+        )
+
+
+        create_document(
+            document_record
+        )
+
+
+        # -------------------------------------------------
+        # MARK OLD METADATA AS REPLACED
+        # -------------------------------------------------
+
+        mark_documents_replaced(
+
+            session_id=
+                session_id,
+
+            keep_document_id=
+                new_document_id,
+        )
+
+
+        # -------------------------------------------------
+        # REMOVE OLD VECTOR CHUNKS
+        # -------------------------------------------------
+
+        for old_document in (
+            previous_documents
+        ):
+
+            delete_document_chunks(
+
+                session_id=
+                    str(
+                        session_id
+                    ),
+
+                document_id=
+                    str(
+                        old_document.id
+                    ),
+            )
+
+
+        return DocumentUploadResponse(
+
+            message=(
+                "PDF processed successfully."
+            ),
+
+            document=
+                build_document_status(
+                    session_id
+                ),
+        )
 
 
     except HTTPException:
@@ -240,7 +595,32 @@ def upload_pdf(
 
     except Exception as error:
 
-        reset_pdf_state()
+        # -------------------------------------------------
+        # REMOVE NEW VECTORS IF REQUEST FAILED
+        # BEFORE COMPLETING SUCCESSFULLY
+        # -------------------------------------------------
+
+        if new_document_id is not None:
+
+            try:
+
+                delete_document_chunks(
+
+                    session_id=
+                        str(
+                            session_id
+                        ),
+
+                    document_id=
+                        str(
+                            new_document_id
+                        ),
+                )
+
+            except Exception:
+
+                pass
+
 
         raise HTTPException(
             status_code=500,
@@ -261,74 +641,86 @@ def upload_pdf(
 # =========================================================
 
 @app.post(
-    "/api/v1/datasets/upload",
+    "/api/v1/sessions/{session_id}/datasets/upload",
+
+    response_model=
+        DatasetUploadResponse,
+
     tags=[
         "Datasets"
     ],
 )
 def upload_dataset(
-    file: UploadFile,
+
+    session_id: UUID,
+
+    file: UploadFile = File(...),
 ):
+
+    require_session(
+        session_id
+    )
+
 
     try:
 
-        # -------------------------------------------------
-        # Save upload
-        # -------------------------------------------------
+        (
+            saved_path,
+            file_hash,
+            safe_file_name,
+        ) = save_upload(
 
-        saved_path, file_hash = (
-            save_upload(
-                upload_file=file,
-                allowed_extensions={
-                    ".csv",
-                    ".xlsx",
-                },
-            )
+            upload_file=
+                file,
+
+            allowed_extensions={
+                ".csv",
+                ".xlsx",
+            },
+
+            session_id=
+                str(
+                    session_id
+                ),
         )
 
 
         # -------------------------------------------------
-        # Same dataset
+        # SAME CURRENT DATASET?
         # -------------------------------------------------
 
+        current_dataset = (
+            get_latest_dataset(
+                session_id
+            )
+        )
+
+
         if (
-            runtime_state[
-                "dataset"
-            ][
-                "ready"
-            ]
+            current_dataset is not None
+
             and
-            runtime_state[
-                "dataset"
-            ][
-                "file_hash"
-            ]
+
+            current_dataset.sha256
             == file_hash
         ):
 
-            return {
-                "message":
-                    "Dataset is already loaded.",
+            return DatasetUploadResponse(
 
-                "dataset":
-                    runtime_state[
-                        "dataset"
-                    ],
-            }
+                message=(
+                    "Dataset is already loaded "
+                    "for this session."
+                ),
 
-
-        # -------------------------------------------------
-        # Clear previous dataset
-        # -------------------------------------------------
-
-        clear_structured_data()
-
-        reset_dataset_state()
+                dataset=
+                    build_dataset_status(
+                        session_id
+                    ),
+            )
 
 
         # -------------------------------------------------
-        # Phase 6:
-        # CSV/XLSX -> DataFrame
+        # VALIDATE / LOAD FILE
         # -------------------------------------------------
 
         data_info = (
@@ -340,49 +732,86 @@ def upload_dataset(
         )
 
 
+        dataset_id = (
+            uuid4()
+        )
+
+
         # -------------------------------------------------
-        # Update state
+        # CREATE DATABASE RECORD
         # -------------------------------------------------
 
-        runtime_state[
-            "dataset"
-        ] = {
+        dataset_record = (
+            DatasetRecord(
 
-            "ready":
-                True,
+                id=
+                    dataset_id,
 
-            "file_name":
-                file.filename,
+                session_id=
+                    session_id,
 
-            "file_hash":
-                file_hash,
+                file_name=
+                    safe_file_name,
 
-            "rows":
-                data_info[
-                    "rows"
-                ],
+                stored_path=
+                    str(
+                        saved_path
+                    ),
 
-            "columns":
-                data_info[
-                    "columns"
-                ],
+                sha256=
+                    file_hash,
 
-            "column_names":
-                data_info[
-                    "column_names"
-                ],
-        }
+                row_count=
+                    data_info[
+                        "rows"
+                    ],
+
+                column_count=
+                    data_info[
+                        "columns"
+                    ],
+
+                column_names=
+                    data_info[
+                        "column_names"
+                    ],
+
+                status=
+                    "ready",
+            )
+        )
 
 
-        return {
-            "message":
-                "Dataset loaded successfully.",
+        create_dataset(
+            dataset_record
+        )
 
-            "dataset":
-                runtime_state[
-                    "dataset"
-                ],
-        }
+
+        # -------------------------------------------------
+        # OLD DATASET METADATA → REPLACED
+        # -------------------------------------------------
+
+        mark_datasets_replaced(
+
+            session_id=
+                session_id,
+
+            keep_dataset_id=
+                dataset_id,
+        )
+
+
+        return DatasetUploadResponse(
+
+            message=(
+                "Dataset loaded successfully."
+            ),
+
+            dataset=
+                build_dataset_status(
+                    session_id
+                ),
+        )
 
 
     except HTTPException:
@@ -391,8 +820,6 @@ def upload_dataset(
 
 
     except Exception as error:
-
-        reset_dataset_state()
 
         raise HTTPException(
             status_code=500,
@@ -413,12 +840,18 @@ def upload_dataset(
 # =========================================================
 
 @app.get(
-    "/api/v1/datasets/preview",
+    "/api/v1/sessions/{session_id}/datasets/preview",
+
+    response_model=
+        DatasetPreviewResponse,
+
     tags=[
         "Datasets"
     ],
 )
 def dataset_preview(
+
+    session_id: UUID,
 
     limit: int = Query(
         default=20,
@@ -427,29 +860,19 @@ def dataset_preview(
     ),
 ):
 
-    # -----------------------------------------------------
-    # Dataset must exist
-    # -----------------------------------------------------
-
-    if not runtime_state[
-        "dataset"
-    ][
-        "ready"
-    ]:
-
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "No structured dataset "
-                "is currently loaded."
-            ),
-        )
+    require_session(
+        session_id
+    )
 
 
     try:
 
-        dataframe = (
-            get_current_dataframe()
+        dataframe, dataset = (
+            get_dataframe_for_session(
+                str(
+                    session_id
+                )
+            )
         )
 
 
@@ -460,10 +883,6 @@ def dataset_preview(
         )
 
 
-        # -------------------------------------------------
-        # Convert Pandas values to JSON-safe records
-        # -------------------------------------------------
-
         rows = json.loads(
 
             preview_dataframe.to_json(
@@ -473,20 +892,27 @@ def dataset_preview(
         )
 
 
-        return {
-            "file_name":
-                runtime_state[
-                    "dataset"
-                ][
-                    "file_name"
-                ],
+        return DatasetPreviewResponse(
 
-            "returned_rows":
+            file_name=
+                dataset.file_name,
+
+            returned_rows=
                 len(rows),
 
-            "rows":
+            rows=
                 rows,
-        }
+        )
+
+
+    except RuntimeError as error:
+
+        raise HTTPException(
+            status_code=409,
+            detail=str(
+                error
+            ),
+        )
 
 
     except Exception as error:
@@ -505,25 +931,51 @@ def dataset_preview(
 # =========================================================
 
 @app.post(
-    "/api/v1/chat",
-    response_model=ChatResponse,
+    "/api/v1/sessions/{session_id}/chat",
+
+    response_model=
+        ChatResponse,
+
     tags=[
         "Chat"
     ],
 )
 def chat(
+
+    session_id: UUID,
+
     request: ChatRequest,
 ):
 
+    require_session(
+        session_id
+    )
+
+
     # -----------------------------------------------------
-    # At least one information source
-    # must be available.
+    # MAKE SURE SESSION HAS SOMETHING TO QUERY
     # -----------------------------------------------------
 
-    if not (
-        runtime_state["pdf"]["ready"]
-        or
-        runtime_state["dataset"]["ready"]
+    document = (
+        get_latest_document(
+            session_id
+        )
+    )
+
+
+    dataset = (
+        get_latest_dataset(
+            session_id
+        )
+    )
+
+
+    if (
+        document is None
+
+        and
+
+        dataset is None
     ):
 
         raise HTTPException(
@@ -542,18 +994,79 @@ def chat(
     )
 
 
+    if not question:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Question cannot be empty."
+            ),
+        )
+
+
     try:
+
+        # -------------------------------------------------
+        # SAVE USER MESSAGE
+        # -------------------------------------------------
+
+        save_chat_message(
+
+            session_id=
+                session_id,
+
+            role=
+                "user",
+
+            content=
+                question,
+        )
+
+
+        # -------------------------------------------------
+        # RUN SESSION-AWARE AGENT
+        # -------------------------------------------------
 
         answer = (
             run_document_agent(
-                question
+
+                question=
+                    question,
+
+                session_id=
+                    str(
+                        session_id
+                    ),
             )
         )
 
 
-        return ChatResponse(
-            answer=answer
+        # -------------------------------------------------
+        # SAVE ASSISTANT MESSAGE
+        # -------------------------------------------------
+
+        save_chat_message(
+
+            session_id=
+                session_id,
+
+            role=
+                "assistant",
+
+            content=
+                answer,
         )
+
+
+        return ChatResponse(
+            answer=
+                answer
+        )
+
+
+    except HTTPException:
+
+        raise
 
 
     except Exception as error:
@@ -565,3 +1078,93 @@ def chat(
                 f"{error}"
             ),
         )
+
+
+# =========================================================
+# CHAT HISTORY
+# =========================================================
+
+@app.get(
+    "/api/v1/sessions/{session_id}/chat",
+
+    response_model=
+        ChatHistoryResponse,
+
+    tags=[
+        "Chat"
+    ],
+)
+def chat_history(
+    session_id: UUID,
+):
+
+    require_session(
+        session_id
+    )
+
+
+    messages = (
+        get_chat_messages(
+            session_id
+        )
+    )
+
+
+    return ChatHistoryResponse(
+
+        session_id=
+            session_id,
+
+        messages=[
+
+            {
+                "role":
+                    message.role,
+
+                "content":
+                    message.content,
+
+                "created_at":
+                    message.created_at,
+            }
+
+            for message
+            in messages
+        ],
+    )
+
+
+# =========================================================
+# CLEAR CHAT
+# =========================================================
+
+@app.delete(
+    "/api/v1/sessions/{session_id}/chat",
+
+    response_model=
+        DeleteChatResponse,
+
+    tags=[
+        "Chat"
+    ],
+)
+def clear_chat_history(
+    session_id: UUID,
+):
+
+    require_session(
+        session_id
+    )
+
+
+    delete_chat_messages(
+        session_id
+    )
+
+
+    return DeleteChatResponse(
+
+        message=(
+            "Chat history cleared."
+        )
+    )

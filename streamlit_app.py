@@ -1,10 +1,14 @@
 import os
 
 import pandas as pd
+
 import requests
+
 import streamlit as st
 
-from dotenv import load_dotenv
+from dotenv import (
+    load_dotenv,
+)
 
 
 # =========================================================
@@ -23,62 +27,66 @@ API_BASE_URL = (
 )
 
 
-# =========================================================
-# HTTP SETTINGS
-# =========================================================
-
-CONNECT_TIMEOUT = 10
-
-READ_TIMEOUT = 180
-
 REQUEST_TIMEOUT = (
-    CONNECT_TIMEOUT,
-    READ_TIMEOUT,
+    10,
+    180,
 )
 
 
 # =========================================================
-# PAGE CONFIGURATION
+# PAGE
 # =========================================================
 
 st.set_page_config(
-    page_title=(
-        "Document Intelligence Agent"
-    ),
-    page_icon="📄",
-    layout="wide",
+
+    page_title=
+        "Document Intelligence Agent",
+
+    page_icon=
+        "📄",
+
+    layout=
+        "wide",
 )
 
 
 # =========================================================
-# SESSION STATE
+# INITIAL SESSION STATE
 # =========================================================
 
 def initialize_session_state():
 
     defaults = {
 
-        "messages": [],
+        "session_id":
+            None,
+
+        "messages":
+            [],
 
         "backend_online":
             False,
 
         "backend_status": {
 
-            "pdf": {
-                "ready": False,
+            "document": {
+                "ready": False
             },
 
             "dataset": {
-                "ready": False,
+                "ready": False
             },
         },
     }
 
 
-    for key, value in defaults.items():
+    for key, value in (
+        defaults.items()
+    ):
 
-        if key not in st.session_state:
+        if key not in (
+            st.session_state
+        ):
 
             st.session_state[
                 key
@@ -89,16 +97,18 @@ initialize_session_state()
 
 
 # =========================================================
-# API ERROR CLASS
+# API ERROR
 # =========================================================
 
-class APIError(Exception):
+class APIError(
+    Exception
+):
 
     pass
 
 
 # =========================================================
-# API HELPER
+# GENERIC API REQUEST
 # =========================================================
 
 def api_request(
@@ -117,9 +127,16 @@ def api_request(
 
         response = (
             requests.request(
-                method=method,
-                url=url,
-                timeout=REQUEST_TIMEOUT,
+
+                method=
+                    method,
+
+                url=
+                    url,
+
+                timeout=
+                    REQUEST_TIMEOUT,
+
                 **kwargs,
             )
         )
@@ -128,15 +145,15 @@ def api_request(
     except requests.exceptions.Timeout:
 
         raise APIError(
-            "The backend request timed out."
+            "Backend request timed out."
         )
 
 
     except requests.exceptions.ConnectionError:
 
         raise APIError(
-            "Could not connect to the FastAPI backend. "
-            "Make sure it is running on port 8000."
+            "Could not connect to FastAPI. "
+            "Make sure the backend is running."
         )
 
 
@@ -148,20 +165,17 @@ def api_request(
         )
 
 
-    # -----------------------------------------------------
-    # Handle backend error response
-    # -----------------------------------------------------
-
     if not response.ok:
 
         try:
 
-            error_body = (
+            body = (
                 response.json()
             )
 
+
             detail = (
-                error_body.get(
+                body.get(
                     "detail",
                     response.text,
                 )
@@ -178,15 +192,19 @@ def api_request(
 
 
         raise APIError(
-            f"Backend returned "
-            f"HTTP {response.status_code}: "
+            f"HTTP "
+            f"{response.status_code}: "
             f"{detail}"
         )
 
 
-    # -----------------------------------------------------
-    # Decode JSON
-    # -----------------------------------------------------
+    if (
+        response.status_code
+        == 204
+    ):
+
+        return None
+
 
     try:
 
@@ -208,9 +226,11 @@ def check_backend() -> bool:
 
     try:
 
-        result = api_request(
-            "GET",
-            "/health",
+        result = (
+            api_request(
+                "GET",
+                "/health",
+            )
         )
 
 
@@ -228,29 +248,313 @@ def check_backend() -> bool:
 
 
 # =========================================================
+# CREATE SESSION
+# =========================================================
+
+def create_backend_session() -> str:
+
+    result = (
+        api_request(
+            "POST",
+            "/api/v1/sessions",
+        )
+    )
+
+
+    return str(
+        result[
+            "session_id"
+        ]
+    )
+
+
+# =========================================================
 # STATUS
+# =========================================================
+
+def get_session_status(
+    session_id: str,
+):
+
+    return api_request(
+
+        "GET",
+
+        (
+            f"/api/v1/sessions/"
+            f"{session_id}/status"
+        ),
+    )
+
+
+# =========================================================
+# CHAT HISTORY
+# =========================================================
+
+def get_chat_history(
+    session_id: str,
+):
+
+    result = (
+        api_request(
+
+            "GET",
+
+            (
+                f"/api/v1/sessions/"
+                f"{session_id}/chat"
+            ),
+        )
+    )
+
+
+    return result[
+        "messages"
+    ]
+
+
+def clear_chat_history(
+    session_id: str,
+):
+
+    return api_request(
+
+        "DELETE",
+
+        (
+            f"/api/v1/sessions/"
+            f"{session_id}/chat"
+        ),
+    )
+
+
+# =========================================================
+# REFRESH STATUS
 # =========================================================
 
 def refresh_backend_status():
 
-    result = api_request(
-        "GET",
-        "/api/v1/status",
+    session_id = (
+        st.session_state
+        .session_id
     )
+
+
+    if not session_id:
+
+        return
 
 
     st.session_state[
         "backend_status"
-    ] = result
+    ] = get_session_status(
+        session_id
+    )
 
 
 # =========================================================
-# UPLOAD PDF
+# REFRESH CHAT
+# =========================================================
+
+def refresh_chat_history():
+
+    session_id = (
+        st.session_state
+        .session_id
+    )
+
+
+    if not session_id:
+
+        st.session_state.messages = []
+
+        return
+
+
+    messages = (
+        get_chat_history(
+            session_id
+        )
+    )
+
+
+    st.session_state.messages = [
+
+        {
+            "role":
+                message[
+                    "role"
+                ],
+
+            "content":
+                message[
+                    "content"
+                ],
+        }
+
+        for message
+        in messages
+    ]
+
+
+# =========================================================
+# RESTORE OR CREATE APPLICATION SESSION
+# =========================================================
+
+def ensure_application_session():
+
+    state_session = (
+        st.session_state
+        .get(
+            "session_id"
+        )
+    )
+
+
+    query_session = (
+        st.query_params
+        .get(
+            "session"
+        )
+    )
+
+
+    # -----------------------------------------------------
+    # URL SESSION TAKES PRIORITY
+    #
+    # Important when user pastes an older
+    # persistent workspace URL.
+    # -----------------------------------------------------
+
+    if (
+        query_session
+
+        and
+
+        query_session
+        != state_session
+    ):
+
+        try:
+
+            get_session_status(
+                query_session
+            )
+
+
+            st.session_state.session_id = (
+                query_session
+            )
+
+
+            return
+
+
+        except APIError:
+
+            st.query_params.clear()
+
+
+    # -----------------------------------------------------
+    # EXISTING STREAMLIT SESSION
+    # -----------------------------------------------------
+
+    state_session = (
+        st.session_state
+        .get(
+            "session_id"
+        )
+    )
+
+
+    if state_session:
+
+        try:
+
+            get_session_status(
+                state_session
+            )
+
+
+            st.query_params[
+                "session"
+            ] = state_session
+
+
+            return
+
+
+        except APIError:
+
+            st.session_state.session_id = None
+
+
+    # -----------------------------------------------------
+    # VALID URL SESSION
+    # -----------------------------------------------------
+
+    query_session = (
+        st.query_params
+        .get(
+            "session"
+        )
+    )
+
+
+    if query_session:
+
+        try:
+
+            get_session_status(
+                query_session
+            )
+
+
+            st.session_state.session_id = (
+                query_session
+            )
+
+
+            return
+
+
+        except APIError:
+
+            st.query_params.clear()
+
+
+    # -----------------------------------------------------
+    # CREATE BRAND-NEW SESSION
+    # -----------------------------------------------------
+
+    new_session = (
+        create_backend_session()
+    )
+
+
+    st.session_state.session_id = (
+        new_session
+    )
+
+
+    st.query_params[
+        "session"
+    ] = new_session
+
+
+# =========================================================
+# PDF UPLOAD
 # =========================================================
 
 def upload_pdf_to_api(
     uploaded_file,
 ):
+
+    session_id = (
+        st.session_state
+        .session_id
+    )
+
 
     files = {
 
@@ -267,10 +571,20 @@ def upload_pdf_to_api(
     }
 
 
-    result = api_request(
-        "POST",
-        "/api/v1/documents/upload",
-        files=files,
+    result = (
+        api_request(
+
+            "POST",
+
+            (
+                f"/api/v1/sessions/"
+                f"{session_id}"
+                f"/documents/upload"
+            ),
+
+            files=
+                files,
+        )
     )
 
 
@@ -281,12 +595,18 @@ def upload_pdf_to_api(
 
 
 # =========================================================
-# UPLOAD DATASET
+# DATASET UPLOAD
 # =========================================================
 
 def upload_dataset_to_api(
     uploaded_file,
 ):
+
+    session_id = (
+        st.session_state
+        .session_id
+    )
+
 
     files = {
 
@@ -303,10 +623,20 @@ def upload_dataset_to_api(
     }
 
 
-    result = api_request(
-        "POST",
-        "/api/v1/datasets/upload",
-        files=files,
+    result = (
+        api_request(
+
+            "POST",
+
+            (
+                f"/api/v1/sessions/"
+                f"{session_id}"
+                f"/datasets/upload"
+            ),
+
+            files=
+                files,
+        )
     )
 
 
@@ -317,44 +647,28 @@ def upload_dataset_to_api(
 
 
 # =========================================================
-# CHAT
-# =========================================================
-
-def ask_api(
-    question: str,
-) -> str:
-
-    result = api_request(
-
-        "POST",
-
-        "/api/v1/chat",
-
-        json={
-            "question":
-                question
-        },
-    )
-
-
-    return result[
-        "answer"
-    ]
-
-
-# =========================================================
-# PREVIEW
+# DATASET PREVIEW
 # =========================================================
 
 def get_dataset_preview(
     limit: int = 20,
 ):
 
+    session_id = (
+        st.session_state
+        .session_id
+    )
+
+
     return api_request(
 
         "GET",
 
-        "/api/v1/datasets/preview",
+        (
+            f"/api/v1/sessions/"
+            f"{session_id}"
+            f"/datasets/preview"
+        ),
 
         params={
             "limit":
@@ -364,7 +678,45 @@ def get_dataset_preview(
 
 
 # =========================================================
-# CHECK BACKEND
+# ASK AGENT
+# =========================================================
+
+def ask_api(
+    question: str,
+) -> str:
+
+    session_id = (
+        st.session_state
+        .session_id
+    )
+
+
+    result = (
+        api_request(
+
+            "POST",
+
+            (
+                f"/api/v1/sessions/"
+                f"{session_id}"
+                f"/chat"
+            ),
+
+            json={
+                "question":
+                    question
+            },
+        )
+    )
+
+
+    return result[
+        "answer"
+    ]
+
+
+# =========================================================
+# BACKEND CONNECTION
 # =========================================================
 
 st.session_state.backend_online = (
@@ -372,17 +724,23 @@ st.session_state.backend_online = (
 )
 
 
-if st.session_state.backend_online:
+if (
+    st.session_state
+    .backend_online
+):
 
     try:
 
+        ensure_application_session()
+
         refresh_backend_status()
+
+        refresh_chat_history()
+
 
     except APIError:
 
-        st.session_state.backend_online = (
-            False
-        )
+        st.session_state.backend_online = False
 
 
 # =========================================================
@@ -392,20 +750,19 @@ if st.session_state.backend_online:
 with st.sidebar:
 
     st.title(
-        "📁 Files"
+        "📁 Workspace"
     )
 
-
-    # =====================================================
-    # BACKEND STATUS
-    # =====================================================
 
     st.subheader(
         "Backend"
     )
 
 
-    if st.session_state.backend_online:
+    if (
+        st.session_state
+        .backend_online
+    ):
 
         st.success(
             "FastAPI connected"
@@ -418,22 +775,74 @@ with st.sidebar:
             "FastAPI offline"
         )
 
+
+    # -----------------------------------------------------
+    # SESSION
+    # -----------------------------------------------------
+
+    if (
+        st.session_state
+        .session_id
+    ):
+
         st.caption(
-            "Start the backend with:"
+            "Application session"
         )
 
+
         st.code(
-            "uvicorn app.api.main:app "
-            "--reload --port 8000"
+            st.session_state
+            .session_id
         )
+
+
+    if st.button(
+        "New Session",
+        disabled=(
+            not st.session_state
+            .backend_online
+        ),
+    ):
+
+        try:
+
+            new_session = (
+                create_backend_session()
+            )
+
+
+            st.session_state.session_id = (
+                new_session
+            )
+
+
+            st.session_state.messages = []
+
+
+            st.query_params[
+                "session"
+            ] = new_session
+
+
+            refresh_backend_status()
+
+
+            st.rerun()
+
+
+        except APIError as error:
+
+            st.error(
+                str(error)
+            )
 
 
     st.divider()
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # PDF
-    # =====================================================
+    # -----------------------------------------------------
 
     st.subheader(
         "PDF Document"
@@ -442,11 +851,20 @@ with st.sidebar:
 
     uploaded_pdf = (
         st.file_uploader(
+
             "Choose PDF",
+
             type=[
                 "pdf"
             ],
-            key="pdf_uploader",
+
+            key=
+                "pdf_uploader",
+
+            disabled=(
+                not st.session_state
+                .backend_online
+            ),
         )
     )
 
@@ -456,18 +874,12 @@ with st.sidebar:
         if st.button(
             "Upload PDF",
             type="primary",
-            width="stretch",
-            disabled=(
-                not st.session_state
-                .backend_online
-            ),
         ):
 
             try:
 
                 with st.spinner(
-                    "Sending PDF to FastAPI...",
-                    show_time=True,
+                    "Processing PDF..."
                 ):
 
                     result = (
@@ -491,21 +903,17 @@ with st.sidebar:
                 )
 
 
-    # -----------------------------------------------------
-    # PDF status
-    # -----------------------------------------------------
-
-    pdf_status = (
+    document_status = (
         st.session_state
         .backend_status
         .get(
-            "pdf",
-            {}
+            "document",
+            {},
         )
     )
 
 
-    if pdf_status.get(
+    if document_status.get(
         "ready"
     ):
 
@@ -513,30 +921,32 @@ with st.sidebar:
             "PDF ready"
         )
 
+
         st.write(
             f"**File:** "
-            f"{pdf_status.get('file_name')}"
+            f"{document_status.get('file_name')}"
         )
+
 
         st.write(
             f"**Chunks:** "
-            f"{pdf_status.get('chunk_count')}"
+            f"{document_status.get('chunk_count')}"
         )
 
 
     else:
 
         st.info(
-            "No PDF loaded."
+            "No PDF in this session."
         )
 
 
     st.divider()
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # DATASET
-    # =====================================================
+    # -----------------------------------------------------
 
     st.subheader(
         "Structured Dataset"
@@ -545,12 +955,21 @@ with st.sidebar:
 
     uploaded_dataset = (
         st.file_uploader(
+
             "Choose CSV or XLSX",
+
             type=[
                 "csv",
                 "xlsx",
             ],
-            key="dataset_uploader",
+
+            key=
+                "dataset_uploader",
+
+            disabled=(
+                not st.session_state
+                .backend_online
+            ),
         )
     )
 
@@ -560,18 +979,12 @@ with st.sidebar:
         if st.button(
             "Upload Dataset",
             type="primary",
-            width="stretch",
-            disabled=(
-                not st.session_state
-                .backend_online
-            ),
         ):
 
             try:
 
                 with st.spinner(
-                    "Sending dataset to FastAPI...",
-                    show_time=True,
+                    "Loading dataset..."
                 ):
 
                     result = (
@@ -595,16 +1008,12 @@ with st.sidebar:
                 )
 
 
-    # -----------------------------------------------------
-    # Dataset status
-    # -----------------------------------------------------
-
     dataset_status = (
         st.session_state
         .backend_status
         .get(
             "dataset",
-            {}
+            {},
         )
     )
 
@@ -617,15 +1026,18 @@ with st.sidebar:
             "Dataset ready"
         )
 
+
         st.write(
             f"**File:** "
             f"{dataset_status.get('file_name')}"
         )
 
+
         st.write(
             f"**Rows:** "
             f"{dataset_status.get('rows')}"
         )
+
 
         st.write(
             f"**Columns:** "
@@ -636,25 +1048,45 @@ with st.sidebar:
     else:
 
         st.info(
-            "No dataset loaded."
+            "No dataset in this session."
         )
 
 
     st.divider()
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # CLEAR CHAT
-    # =====================================================
+    # -----------------------------------------------------
 
     if st.button(
         "Clear Chat",
-        width="stretch",
+
+        disabled=(
+            not st.session_state
+            .backend_online
+        ),
     ):
 
-        st.session_state.messages = []
+        try:
 
-        st.rerun()
+            clear_chat_history(
+                st.session_state
+                .session_id
+            )
+
+
+            st.session_state.messages = []
+
+
+            st.rerun()
+
+
+        except APIError as error:
+
+            st.error(
+                str(error)
+            )
 
 
 # =========================================================
@@ -667,38 +1099,42 @@ st.title(
 
 
 st.caption(
-    "Streamlit frontend + FastAPI backend"
+    "Persistent session-aware "
+    "Streamlit + FastAPI + PostgreSQL + pgvector"
 )
 
 
 # =========================================================
-# ARCHITECTURE STATUS
+# CONNECTION
 # =========================================================
 
-if st.session_state.backend_online:
+if (
+    st.session_state
+    .backend_online
+):
 
     st.success(
-        "Frontend connected to FastAPI backend."
+        "Connected to persistent backend session."
     )
 
 
 else:
 
     st.error(
-        "FastAPI backend is not running."
+        "FastAPI backend is offline."
     )
 
 
 # =========================================================
-# SOURCE STATUS
+# RESOURCE STATUS
 # =========================================================
 
-pdf_status = (
+document_status = (
     st.session_state
     .backend_status
     .get(
-        "pdf",
-        {}
+        "document",
+        {},
     )
 )
 
@@ -708,7 +1144,7 @@ dataset_status = (
     .backend_status
     .get(
         "dataset",
-        {}
+        {},
     )
 )
 
@@ -720,13 +1156,13 @@ column_1, column_2 = (
 
 with column_1:
 
-    if pdf_status.get(
+    if document_status.get(
         "ready"
     ):
 
         st.success(
             f"PDF: "
-            f"{pdf_status.get('file_name')}"
+            f"{document_status.get('file_name')}"
         )
 
 
@@ -761,8 +1197,11 @@ with column_2:
 # =========================================================
 
 if (
-    st.session_state.backend_online
+    st.session_state
+    .backend_online
+
     and
+
     dataset_status.get(
         "ready"
     )
@@ -781,17 +1220,18 @@ if (
             )
 
 
-            dataframe = pd.DataFrame(
-                preview[
-                    "rows"
-                ]
+            dataframe = (
+                pd.DataFrame(
+                    preview[
+                        "rows"
+                    ]
+                )
             )
 
 
             st.dataframe(
                 dataframe,
                 hide_index=True,
-                width="stretch",
             )
 
 
@@ -803,7 +1243,7 @@ if (
 
 
 # =========================================================
-# EXAMPLE QUESTIONS
+# EXAMPLES
 # =========================================================
 
 with st.expander(
@@ -852,12 +1292,12 @@ for message in (
 
 
 # =========================================================
-# ENABLE CHAT?
+# CHAT AVAILABILITY
 # =========================================================
 
 source_ready = (
 
-    pdf_status.get(
+    document_status.get(
         "ready",
         False,
     )
@@ -878,6 +1318,13 @@ chat_enabled = (
 
     and
 
+    bool(
+        st.session_state
+        .session_id
+    )
+
+    and
+
     source_ready
 )
 
@@ -886,18 +1333,23 @@ chat_enabled = (
 # CHAT INPUT
 # =========================================================
 
-prompt = st.chat_input(
+prompt = (
+    st.chat_input(
 
-    (
-        "Ask about your PDF or dataset..."
-        if chat_enabled
-        else
-        "Start FastAPI and upload a file first..."
-    ),
+        (
+            "Ask about your PDF or dataset..."
 
-    disabled=(
-        not chat_enabled
-    ),
+            if chat_enabled
+
+            else
+
+            "Upload a PDF or dataset first..."
+        ),
+
+        disabled=(
+            not chat_enabled
+        ),
+    )
 )
 
 
@@ -906,21 +1358,6 @@ prompt = st.chat_input(
 # =========================================================
 
 if prompt:
-
-    # -----------------------------------------------------
-    # User message
-    # -----------------------------------------------------
-
-    st.session_state.messages.append(
-        {
-            "role":
-                "user",
-
-            "content":
-                prompt,
-        }
-    )
-
 
     with st.chat_message(
         "user"
@@ -931,10 +1368,6 @@ if prompt:
         )
 
 
-    # -----------------------------------------------------
-    # Assistant
-    # -----------------------------------------------------
-
     with st.chat_message(
         "assistant"
     ):
@@ -942,8 +1375,7 @@ if prompt:
         try:
 
             with st.spinner(
-                "Agent is thinking...",
-                show_time=True,
+                "Agent is thinking..."
             ):
 
                 answer = (
@@ -958,28 +1390,13 @@ if prompt:
             )
 
 
+            # PostgreSQL is source of truth.
+
+            refresh_chat_history()
+
+
         except APIError as error:
 
-            answer = (
+            st.error(
                 f"API error: {error}"
             )
-
-
-            st.error(
-                answer
-            )
-
-
-    # -----------------------------------------------------
-    # Store assistant answer
-    # -----------------------------------------------------
-
-    st.session_state.messages.append(
-        {
-            "role":
-                "assistant",
-
-            "content":
-                answer,
-        }
-    )
