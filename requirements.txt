@@ -11,3 +11,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 requests
+SQLAlchemy
+psycopg[binary]
+pgvector-haystack
+sentence-transformers-haystack

@@ -1,123 +1,218 @@
-from haystack.document_stores.in_memory import (
-    InMemoryDocumentStore,
-)
+from app import config
 
-from haystack.components.embedders import (
+
+# =========================================================
+# SENTENCE TRANSFORMERS EMBEDDERS
+# =========================================================
+
+from haystack_integrations.components.embedders.sentence_transformers import (
     SentenceTransformersDocumentEmbedder,
     SentenceTransformersTextEmbedder,
 )
 
-from haystack.components.retrievers.in_memory import (
-    InMemoryEmbeddingRetriever,
+
+# =========================================================
+# HAYSTACK TYPES
+# =========================================================
+
+from haystack.document_stores.types import (
+    DuplicatePolicy,
 )
 
+
+# =========================================================
+# PGVECTOR
+# =========================================================
+
+from haystack_integrations.document_stores.pgvector import (
+    PgvectorDocumentStore,
+)
+
+from haystack_integrations.components.retrievers.pgvector import (
+    PgvectorEmbeddingRetriever,
+)
+
+
+# =========================================================
+# EMBEDDING CONFIGURATION
+# =========================================================
 
 EMBEDDING_MODEL = (
     "sentence-transformers/all-mpnet-base-v2"
 )
 
+EMBEDDING_DIMENSION = 768
 
-# Create the temporary vector/document store
-document_store = InMemoryDocumentStore(
-    embedding_similarity_function="cosine"
+
+# =========================================================
+# DOCUMENT STORE
+# =========================================================
+
+document_store = PgvectorDocumentStore(
+
+    table_name=(
+        "haystack_documents"
+    ),
+
+    embedding_dimension=(
+        EMBEDDING_DIMENSION
+    ),
+
+    vector_function=(
+        "cosine_similarity"
+    ),
+
+    recreate_table=False,
+
+    search_strategy=(
+        "exact_nearest_neighbor"
+    ),
+
+    create_extension=False,
 )
 
 
-# Converts document chunks into vectors
-document_embedder = SentenceTransformersDocumentEmbedder(
-    model=EMBEDDING_MODEL
+# =========================================================
+# DOCUMENT EMBEDDER
+# =========================================================
+
+document_embedder = (
+    SentenceTransformersDocumentEmbedder(
+        model=EMBEDDING_MODEL
+    )
 )
 
 
-# Converts user questions into vectors
-text_embedder = SentenceTransformersTextEmbedder(
-    model=EMBEDDING_MODEL
+# =========================================================
+# QUERY EMBEDDER
+# =========================================================
+
+text_embedder = (
+    SentenceTransformersTextEmbedder(
+        model=EMBEDDING_MODEL
+    )
 )
 
 
-# Searches the document store using embeddings
-retriever = InMemoryEmbeddingRetriever(
+# =========================================================
+# RETRIEVER
+# =========================================================
+
+retriever = PgvectorEmbeddingRetriever(
     document_store=document_store
 )
 
 
+# =========================================================
+# INDEX DOCUMENTS
+# =========================================================
 
-def index_documents(documents):
-    """
-    Create embeddings for document chunks and
-    store them in the document store.
-    """
+def index_documents(
+    documents,
+):
+
+    if not documents:
+        return []
 
     document_embedder.warm_up()
 
-    result = document_embedder.run(
-        documents=documents
+    embedding_result = (
+        document_embedder.run(
+            documents=documents
+        )
     )
 
-    embedded_documents = result["documents"]
+    embedded_documents = (
+        embedding_result[
+            "documents"
+        ]
+    )
 
     document_store.write_documents(
-        embedded_documents
+        embedded_documents,
+        policy=DuplicatePolicy.OVERWRITE,
     )
 
     return embedded_documents
+
+
+# =========================================================
+# SEARCH DOCUMENTS
+# =========================================================
 
 def search_documents(
     query: str,
     top_k: int = 3,
     score_threshold: float = 0.30,
 ):
-    """
-    Search for document chunks that are
-    semantically related to the query.
-    """
+
+    query = query.strip()
+
+    if not query:
+        return []
 
     text_embedder.warm_up()
 
-    query_result = text_embedder.run(
-        text=query
+    query_result = (
+        text_embedder.run(
+            text=query
+        )
     )
 
-    query_embedding = query_result["embedding"]
-
-    result = retriever.run(
-        query_embedding=query_embedding,
-        top_k=top_k,
+    query_embedding = (
+        query_result[
+            "embedding"
+        ]
     )
-    documents = result[
-        "documents"
-    ]
 
-    filtered_documents = [
+    retrieval_result = (
+        retriever.run(
+            query_embedding=
+                query_embedding,
+            top_k=
+                top_k,
+        )
+    )
+
+    documents = (
+        retrieval_result[
+            "documents"
+        ]
+    )
+
+    return [
         document
-        for document in documents
+
+        for document
+        in documents
+
         if (
-            document.score is not None
+            document.score
+            is not None
+
             and
-            document.score >= score_threshold
+
+            document.score
+            >= score_threshold
         )
     ]
 
-    return filtered_documents
 
-def clear_document_store():
-    """
-    Remove all currently indexed documents
-    from the in-memory document store.
-    """
+# =========================================================
+# CLEAR DOCUMENT STORE
+# =========================================================
 
-    documents = (
-        document_store.filter_documents()
-    )
+def clear_document_store() -> None:
 
-    if not documents:
-        return
+    document_store.delete_all_documents()
 
-    document_ids = [
-        document.id
-        for document in documents
-    ]
 
-    document_store.delete_documents(
-        document_ids
+# =========================================================
+# DOCUMENT COUNT
+# =========================================================
+
+def get_document_count() -> int:
+
+    return (
+        document_store.count_documents()
     )

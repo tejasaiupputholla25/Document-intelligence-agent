@@ -27,6 +27,46 @@ Currently under development.
 
 ## Current Phase
 
+
+PHASE 6
+─────────────────────────
+
+Terminal
+   ↓
+Agent
+   ↓
+Tools
+
+
+PHASE 7
+─────────────────────────
+
+Browser
+   ↓
+Streamlit
+   ↓
+Agent
+   ↓
+Tools
+
+
+PHASE 8
+─────────────────────────
+
+Browser
+   ↓
+Streamlit frontend
+   ↓
+HTTP
+   ↓
+FastAPI backend
+   ↓
+Agent
+   ↓
+Tools
+
+
+
 ● Phase 7
 │ Add Streamlit web interface
 │
