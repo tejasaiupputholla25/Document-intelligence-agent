@@ -1,6 +1,9 @@
 import hashlib
+import os
+import zipfile
 
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import (
     HTTPException,
@@ -13,7 +16,7 @@ from app.config import (
 
 
 # =========================================================
-# UPLOAD LOCATION
+# UPLOAD DIRECTORY
 # =========================================================
 
 UPLOAD_ROOT = (
@@ -30,17 +33,271 @@ UPLOAD_ROOT.mkdir(
 
 
 # =========================================================
-# SIZE LIMIT
+# LIMITS
 # =========================================================
 
 MAX_FILE_SIZE_MB = 20
-
 
 MAX_FILE_SIZE_BYTES = (
     MAX_FILE_SIZE_MB
     * 1024
     * 1024
 )
+
+
+# Read uploads progressively instead
+# of loading the entire file into memory.
+
+UPLOAD_CHUNK_SIZE = (
+    1024
+    * 1024
+)
+
+
+# Protect against very large decompressed
+# XLSX ZIP contents.
+
+MAX_XLSX_UNCOMPRESSED_MB = 100
+
+MAX_XLSX_UNCOMPRESSED_BYTES = (
+    MAX_XLSX_UNCOMPRESSED_MB
+    * 1024
+    * 1024
+)
+
+
+# =========================================================
+# SAFE FILE NAME
+# =========================================================
+
+def _safe_file_name(
+    filename: str,
+) -> str:
+
+    # Normalize Windows and Unix path separators.
+
+    normalized = (
+        filename
+        .replace("\\", "/")
+    )
+
+
+    safe_name = (
+        Path(normalized)
+        .name
+        .strip()
+    )
+
+
+    if (
+        not safe_name
+
+        or
+
+        safe_name in {
+            ".",
+            "..",
+        }
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid filename.",
+        )
+
+
+    return safe_name
+
+
+# =========================================================
+# PDF VALIDATION
+# =========================================================
+
+def _validate_pdf(
+    file_path: Path,
+) -> None:
+
+    with file_path.open(
+        "rb"
+    ) as file:
+
+        header = file.read(
+            8
+        )
+
+
+    if not header.startswith(
+        b"%PDF-"
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The uploaded file does not "
+                "appear to be a valid PDF."
+            ),
+        )
+
+
+# =========================================================
+# CSV VALIDATION
+# =========================================================
+
+def _validate_csv(
+    file_path: Path,
+) -> None:
+
+    with file_path.open(
+        "rb"
+    ) as file:
+
+        sample = file.read(
+            8192
+        )
+
+
+    # Null bytes strongly suggest a binary file.
+
+    if b"\x00" in sample:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The uploaded CSV appears "
+                "to contain binary data."
+            ),
+        )
+
+
+    try:
+
+        sample.decode(
+            "utf-8-sig"
+        )
+
+
+    except UnicodeDecodeError as error:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "CSV files must be UTF-8 encoded."
+            ),
+        ) from error
+
+
+# =========================================================
+# XLSX VALIDATION
+# =========================================================
+
+def _validate_xlsx(
+    file_path: Path,
+) -> None:
+
+    if not zipfile.is_zipfile(
+        file_path
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The uploaded file does not "
+                "appear to be a valid XLSX file."
+            ),
+        )
+
+
+    try:
+
+        with zipfile.ZipFile(
+            file_path
+        ) as archive:
+
+            names = set(
+                archive.namelist()
+            )
+
+
+            required_files = {
+                "[Content_Types].xml",
+                "xl/workbook.xml",
+            }
+
+
+            if not required_files.issubset(
+                names
+            ):
+
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "The uploaded ZIP file "
+                        "is not a valid XLSX workbook."
+                    ),
+                )
+
+
+            total_uncompressed_size = sum(
+
+                item.file_size
+
+                for item
+                in archive.infolist()
+            )
+
+
+            if (
+                total_uncompressed_size
+                > MAX_XLSX_UNCOMPRESSED_BYTES
+            ):
+
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "The XLSX workbook expands "
+                        "beyond the allowed size."
+                    ),
+                )
+
+
+    except zipfile.BadZipFile as error:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The XLSX workbook is corrupted."
+            ),
+        ) from error
+
+
+# =========================================================
+# CONTENT VALIDATION
+# =========================================================
+
+def _validate_file_content(
+    file_path: Path,
+    extension: str,
+) -> None:
+
+    if extension == ".pdf":
+
+        _validate_pdf(
+            file_path
+        )
+
+
+    elif extension == ".csv":
+
+        _validate_csv(
+            file_path
+        )
+
+
+    elif extension == ".xlsx":
+
+        _validate_xlsx(
+            file_path
+        )
 
 
 # =========================================================
@@ -56,21 +313,6 @@ def save_upload(
     str,
     str,
 ]:
-    """
-    Validate and save a file into:
-
-    uploads/api/<session_id>/
-
-    Returns:
-
-    saved_path
-    sha256
-    safe_file_name
-    """
-
-    # -----------------------------------------------------
-    # FILENAME
-    # -----------------------------------------------------
 
     if not upload_file.filename:
 
@@ -83,21 +325,16 @@ def save_upload(
         )
 
 
-    safe_file_name = (
-        Path(
+    safe_name = (
+        _safe_file_name(
             upload_file.filename
         )
-        .name
     )
 
 
-    # -----------------------------------------------------
-    # EXTENSION
-    # -----------------------------------------------------
-
     extension = (
         Path(
-            safe_file_name
+            safe_name
         )
         .suffix
         .lower()
@@ -119,61 +356,9 @@ def save_upload(
         )
 
 
-    # -----------------------------------------------------
-    # READ FILE
-    # -----------------------------------------------------
-
-    file_bytes = (
-        upload_file
-        .file
-        .read()
-    )
-
-
-    if not file_bytes:
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Uploaded file is empty."
-            ),
-        )
-
-
-    # -----------------------------------------------------
-    # SIZE
-    # -----------------------------------------------------
-
-    if (
-        len(file_bytes)
-        > MAX_FILE_SIZE_BYTES
-    ):
-
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"File exceeds the "
-                f"{MAX_FILE_SIZE_MB} MB limit."
-            ),
-        )
-
-
-    # -----------------------------------------------------
-    # HASH
-    # -----------------------------------------------------
-
-    file_hash = (
-        hashlib
-        .sha256(
-            file_bytes
-        )
-        .hexdigest()
-    )
-
-
-    # -----------------------------------------------------
+    # =====================================================
     # SESSION DIRECTORY
-    # -----------------------------------------------------
+    # =====================================================
 
     session_directory = (
         UPLOAD_ROOT
@@ -189,29 +374,139 @@ def save_upload(
     )
 
 
-    # -----------------------------------------------------
-    # STORED NAME
-    # -----------------------------------------------------
+    # =====================================================
+    # TEMPORARY FILE
+    # =====================================================
 
-    stored_file_name = (
-        f"{file_hash[:12]}_"
-        f"{safe_file_name}"
-    )
-
-
-    saved_path = (
+    temporary_path = (
         session_directory
-        / stored_file_name
+        / (
+            f".upload-"
+            f"{uuid4().hex}.part"
+        )
     )
 
 
-    saved_path.write_bytes(
-        file_bytes
-    )
+    sha256 = hashlib.sha256()
+
+    total_size = 0
 
 
-    return (
-        saved_path.resolve(),
-        file_hash,
-        safe_file_name,
-    )
+    try:
+
+        with temporary_path.open(
+            "wb"
+        ) as destination:
+
+            while True:
+
+                chunk = (
+                    upload_file
+                    .file
+                    .read(
+                        UPLOAD_CHUNK_SIZE
+                    )
+                )
+
+
+                if not chunk:
+
+                    break
+
+
+                total_size += (
+                    len(chunk)
+                )
+
+
+                if (
+                    total_size
+                    > MAX_FILE_SIZE_BYTES
+                ):
+
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"File exceeds the "
+                            f"{MAX_FILE_SIZE_MB} MB limit."
+                        ),
+                    )
+
+
+                sha256.update(
+                    chunk
+                )
+
+
+                destination.write(
+                    chunk
+                )
+
+
+        # =================================================
+        # EMPTY FILE
+        # =================================================
+
+        if total_size == 0:
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Uploaded file is empty."
+                ),
+            )
+
+
+        # =================================================
+        # CONTENT SIGNATURE CHECK
+        # =================================================
+
+        _validate_file_content(
+
+            file_path=
+                temporary_path,
+
+            extension=
+                extension,
+        )
+
+
+        file_hash = (
+            sha256.hexdigest()
+        )
+
+
+        stored_file_name = (
+            f"{file_hash[:12]}_"
+            f"{safe_name}"
+        )
+
+
+        saved_path = (
+            session_directory
+            / stored_file_name
+        )
+
+
+        # Atomic move/replace inside same filesystem.
+
+        os.replace(
+            temporary_path,
+            saved_path,
+        )
+
+
+        return (
+            saved_path.resolve(),
+            file_hash,
+            safe_name,
+        )
+
+
+    except Exception:
+
+        temporary_path.unlink(
+            missing_ok=True
+        )
+
+        raise

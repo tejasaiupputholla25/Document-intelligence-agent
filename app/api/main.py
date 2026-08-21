@@ -1,4 +1,5 @@
 import json
+import logging
 
 from contextlib import (
     asynccontextmanager,
@@ -90,6 +91,15 @@ from app.api.schemas import (
 
 
 # =========================================================
+# LOGGING
+# =========================================================
+
+logger = logging.getLogger(
+    __name__
+)
+
+
+# =========================================================
 # APPLICATION LIFESPAN
 # =========================================================
 
@@ -109,9 +119,8 @@ async def lifespan(
 
 app = FastAPI(
 
-    title=(
-        "Document Intelligence API"
-    ),
+    title=
+        "Document Intelligence API",
 
     description=(
         "Persistent session-aware backend "
@@ -120,7 +129,7 @@ app = FastAPI(
     ),
 
     version=
-        "2.0.0",
+        "2.1.0",
 
     lifespan=
         lifespan,
@@ -375,10 +384,6 @@ def upload_pdf(
 
     try:
 
-        # -------------------------------------------------
-        # SAVE FILE
-        # -------------------------------------------------
-
         (
             saved_path,
             file_hash,
@@ -400,7 +405,7 @@ def upload_pdf(
 
 
         # -------------------------------------------------
-        # CHECK EXISTING ACTIVE PDF
+        # DUPLICATE CURRENT DOCUMENT
         # -------------------------------------------------
 
         current_document = (
@@ -457,18 +462,10 @@ def upload_pdf(
             )
 
 
-        # -------------------------------------------------
-        # CREATE NEW DOCUMENT ID
-        # -------------------------------------------------
-
         new_document_id = (
             uuid4()
         )
 
-
-        # -------------------------------------------------
-        # SAVE OLD ACTIVE DOCUMENT REFERENCES
-        # -------------------------------------------------
 
         previous_documents = (
             get_ready_documents(
@@ -478,7 +475,7 @@ def upload_pdf(
 
 
         # -------------------------------------------------
-        # INDEX NEW SESSION-SCOPED VECTORS
+        # INDEX NEW VECTORS
         # -------------------------------------------------
 
         index_documents(
@@ -502,7 +499,7 @@ def upload_pdf(
 
 
         # -------------------------------------------------
-        # CREATE METADATA RECORD
+        # METADATA
         # -------------------------------------------------
 
         document_record = (
@@ -526,7 +523,9 @@ def upload_pdf(
                     file_hash,
 
                 chunk_count=
-                    len(chunks),
+                    len(
+                        chunks
+                    ),
 
                 status=
                     "ready",
@@ -539,10 +538,6 @@ def upload_pdf(
         )
 
 
-        # -------------------------------------------------
-        # MARK OLD METADATA AS REPLACED
-        # -------------------------------------------------
-
         mark_documents_replaced(
 
             session_id=
@@ -554,7 +549,7 @@ def upload_pdf(
 
 
         # -------------------------------------------------
-        # REMOVE OLD VECTOR CHUNKS
+        # DELETE ONLY PREVIOUS DOCUMENT VECTORS
         # -------------------------------------------------
 
         for old_document in (
@@ -577,9 +572,8 @@ def upload_pdf(
 
         return DocumentUploadResponse(
 
-            message=(
-                "PDF processed successfully."
-            ),
+            message=
+                "PDF processed successfully.",
 
             document=
                 build_document_status(
@@ -593,11 +587,21 @@ def upload_pdf(
         raise
 
 
-    except Exception as error:
+    except Exception:
 
         # -------------------------------------------------
-        # REMOVE NEW VECTORS IF REQUEST FAILED
-        # BEFORE COMPLETING SUCCESSFULLY
+        # FULL DETAILS GO TO SERVER LOG ONLY
+        # -------------------------------------------------
+
+        logger.exception(
+            "PDF processing failed "
+            "for session %s",
+            session_id,
+        )
+
+
+        # -------------------------------------------------
+        # CLEAN POSSIBLE ORPHAN VECTORS
         # -------------------------------------------------
 
         if new_document_id is not None:
@@ -617,16 +621,28 @@ def upload_pdf(
                         ),
                 )
 
+
             except Exception:
 
-                pass
+                logger.exception(
+                    (
+                        "Failed to remove orphan "
+                        "vectors for document %s "
+                        "in session %s"
+                    ),
+                    new_document_id,
+                    session_id,
+                )
 
+
+        # -------------------------------------------------
+        # GENERIC CLIENT RESPONSE
+        # -------------------------------------------------
 
         raise HTTPException(
             status_code=500,
             detail=(
-                f"PDF processing failed: "
-                f"{error}"
+                "PDF processing failed."
             ),
         )
 
@@ -685,10 +701,6 @@ def upload_dataset(
         )
 
 
-        # -------------------------------------------------
-        # SAME CURRENT DATASET?
-        # -------------------------------------------------
-
         current_dataset = (
             get_latest_dataset(
                 session_id
@@ -719,10 +731,6 @@ def upload_dataset(
             )
 
 
-        # -------------------------------------------------
-        # VALIDATE / LOAD FILE
-        # -------------------------------------------------
-
         data_info = (
             load_structured_data(
                 str(
@@ -736,10 +744,6 @@ def upload_dataset(
             uuid4()
         )
 
-
-        # -------------------------------------------------
-        # CREATE DATABASE RECORD
-        # -------------------------------------------------
 
         dataset_record = (
             DatasetRecord(
@@ -787,10 +791,6 @@ def upload_dataset(
         )
 
 
-        # -------------------------------------------------
-        # OLD DATASET METADATA → REPLACED
-        # -------------------------------------------------
-
         mark_datasets_replaced(
 
             session_id=
@@ -819,13 +819,19 @@ def upload_dataset(
         raise
 
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Dataset processing failed "
+            "for session %s",
+            session_id,
+        )
+
 
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Dataset loading failed: "
-                f"{error}"
+                "Dataset processing failed."
             ),
         )
 
@@ -898,7 +904,9 @@ def dataset_preview(
                 dataset.file_name,
 
             returned_rows=
-                len(rows),
+                len(
+                    rows
+                ),
 
             rows=
                 rows,
@@ -906,6 +914,10 @@ def dataset_preview(
 
 
     except RuntimeError as error:
+
+        # -------------------------------------------------
+        # EXPECTED BUSINESS/APPLICATION ERROR
+        # -------------------------------------------------
 
         raise HTTPException(
             status_code=409,
@@ -915,13 +927,19 @@ def dataset_preview(
         )
 
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Dataset preview failed "
+            "for session %s",
+            session_id,
+        )
+
 
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Dataset preview failed: "
-                f"{error}"
+                "Dataset preview failed."
             ),
         )
 
@@ -951,10 +969,6 @@ def chat(
         session_id
     )
 
-
-    # -----------------------------------------------------
-    # MAKE SURE SESSION HAS SOMETHING TO QUERY
-    # -----------------------------------------------------
 
     document = (
         get_latest_document(
@@ -988,9 +1002,7 @@ def chat(
 
 
     question = (
-        request
-        .question
-        .strip()
+        request.question.strip()
     )
 
 
@@ -1006,10 +1018,6 @@ def chat(
 
     try:
 
-        # -------------------------------------------------
-        # SAVE USER MESSAGE
-        # -------------------------------------------------
-
         save_chat_message(
 
             session_id=
@@ -1022,10 +1030,6 @@ def chat(
                 question,
         )
 
-
-        # -------------------------------------------------
-        # RUN SESSION-AWARE AGENT
-        # -------------------------------------------------
 
         answer = (
             run_document_agent(
@@ -1040,10 +1044,6 @@ def chat(
             )
         )
 
-
-        # -------------------------------------------------
-        # SAVE ASSISTANT MESSAGE
-        # -------------------------------------------------
 
         save_chat_message(
 
@@ -1069,13 +1069,19 @@ def chat(
         raise
 
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Agent request failed "
+            "for session %s",
+            session_id,
+        )
+
 
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Agent request failed: "
-                f"{error}"
+                "Agent request failed."
             ),
         )
 

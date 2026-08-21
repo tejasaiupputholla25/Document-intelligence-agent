@@ -19,6 +19,16 @@ from app.db.models import (
 
 
 # =========================================================
+# SECURITY CONSTANTS
+# =========================================================
+
+ALLOWED_CHAT_ROLES = {
+    "user",
+    "assistant",
+}
+
+
+# =========================================================
 # SESSION
 # =========================================================
 
@@ -26,7 +36,9 @@ def create_session() -> SessionRecord:
 
     with SessionLocal() as database:
 
-        record = SessionRecord()
+        record = (
+            SessionRecord()
+        )
 
         database.add(
             record
@@ -182,10 +194,15 @@ def mark_documents_replaced(
             )
 
 
-        database.execute(
+        statement = (
             statement.values(
                 status="replaced"
             )
+        )
+
+
+        database.execute(
+            statement
         )
 
         database.commit()
@@ -286,10 +303,15 @@ def mark_datasets_replaced(
             )
 
 
-        database.execute(
+        statement = (
             statement.values(
                 status="replaced"
             )
+        )
+
+
+        database.execute(
+            statement
         )
 
         database.commit()
@@ -304,6 +326,18 @@ def save_chat_message(
     role: str,
     content: str,
 ) -> ChatMessageRecord:
+
+    # =====================================================
+    # SECURITY:
+    # ONLY NORMAL CHAT ROLES MAY ENTER CHAT HISTORY
+    # =====================================================
+
+    if role not in ALLOWED_CHAT_ROLES:
+
+        raise ValueError(
+            f"Unsupported chat role: {role}"
+        )
+
 
     with SessionLocal() as database:
 

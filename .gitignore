@@ -26,3 +26,10 @@ Thumbs.db
 
 # Testing/cache
 .pytest_cache/
+
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/

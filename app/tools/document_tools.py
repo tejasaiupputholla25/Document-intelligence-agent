@@ -8,7 +8,6 @@ from haystack.tools import (
     tool,
 )
 
-
 from app.semantic_search import (
     get_session_documents,
     search_documents,
@@ -16,19 +15,17 @@ from app.semantic_search import (
 
 
 # =========================================================
-# SESSION HELPER
+# INTERNAL SESSION ACCESS
 # =========================================================
 
 def _get_session_id(
     state: State,
 ) -> str:
-    """
-    Extract and validate session_id
-    from Haystack Agent State.
-    """
 
-    session_id = state.get(
-        "session_id"
+    session_id = (
+        state.get(
+            "session_id"
+        )
     )
 
 
@@ -45,7 +42,6 @@ def _get_session_id(
 
 
 # =========================================================
-# TOOL 1
 # SEARCH DOCUMENT
 # =========================================================
 
@@ -85,18 +81,15 @@ def search_document(
 
 
     print(
-        "\n[TOOL EXECUTED] "
-        "search_document"
+        "\n[TOOL EXECUTED] search_document"
     )
 
     print(
-        f"Session: "
-        f"{session_id}"
+        f"Session: {session_id}"
     )
 
     print(
-        f"Query: "
-        f"{query}\n"
+        f"Query: {query}\n"
     )
 
 
@@ -123,6 +116,22 @@ def search_document(
         start=1,
     ):
 
+        # -------------------------------------------------
+        # SECURITY:
+        # DO NOT SEND INTERNAL SESSION ID TO LLM
+        # -------------------------------------------------
+
+        metadata = dict(
+            document.meta or {}
+        )
+
+
+        metadata.pop(
+            "session_id",
+            None,
+        )
+
+
         results.append(
             {
                 "source":
@@ -136,7 +145,7 @@ def search_document(
                     document.score,
 
                 "metadata":
-                    document.meta,
+                    metadata,
             }
         )
 
@@ -145,9 +154,6 @@ def search_document(
 
         "query":
             query,
-
-        "session_id":
-            session_id,
 
         "result_count":
             len(results),
@@ -158,7 +164,6 @@ def search_document(
 
 
 # =========================================================
-# TOOL 2
 # DOCUMENT INFORMATION
 # =========================================================
 
@@ -168,8 +173,8 @@ def get_document_info(
     request: Annotated[
         str,
         (
-            "Type of document information "
-            "requested. Use exactly one of: "
+            "Type of document information requested. "
+            "Use exactly one of: "
             "chunk_count, metadata, summary."
         ),
     ],
@@ -178,8 +183,8 @@ def get_document_info(
 
 ) -> dict:
     """
-    Get technical information about the
-    current session's indexed PDF.
+    Get technical information about the current
+    session's indexed PDF.
 
     Always provide request.
     """
@@ -192,18 +197,15 @@ def get_document_info(
 
 
     print(
-        "\n[TOOL EXECUTED] "
-        "get_document_info"
+        "\n[TOOL EXECUTED] get_document_info"
     )
 
     print(
-        f"Session: "
-        f"{session_id}"
+        f"Session: {session_id}"
     )
 
     print(
-        f"Request: "
-        f"{request}\n"
+        f"Request: {request}\n"
     )
 
 
@@ -215,18 +217,13 @@ def get_document_info(
 
 
     allowed_requests = {
-
         "chunk_count",
-
         "metadata",
-
         "summary",
     }
 
 
-    if request not in (
-        allowed_requests
-    ):
+    if request not in allowed_requests:
 
         return {
 
@@ -258,33 +255,50 @@ def get_document_info(
 
         return {
 
-            "session_id":
-                session_id,
-
             "indexed_chunk_count":
-                len(documents),
+                len(
+                    documents
+                )
         }
+
+
+    # =====================================================
+    # SAFE METADATA
+    # =====================================================
+
+    metadata_examples = []
+
+
+    for document in documents[
+        :3
+    ]:
+
+        metadata = dict(
+            document.meta or {}
+        )
+
+
+        # Never expose internal workspace/session ID
+        # back to the language model.
+
+        metadata.pop(
+            "session_id",
+            None,
+        )
+
+
+        metadata_examples.append(
+            metadata
+        )
 
 
     # =====================================================
     # METADATA
     # =====================================================
 
-    metadata_examples = [
-
-        document.meta
-
-        for document
-        in documents[:3]
-    ]
-
-
     if request == "metadata":
 
         return {
-
-            "session_id":
-                session_id,
 
             "metadata_examples":
                 metadata_examples,
@@ -297,11 +311,10 @@ def get_document_info(
 
     return {
 
-        "session_id":
-            session_id,
-
         "indexed_chunk_count":
-            len(documents),
+            len(
+                documents
+            ),
 
         "metadata_examples":
             metadata_examples,

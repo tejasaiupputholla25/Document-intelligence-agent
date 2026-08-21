@@ -4,7 +4,6 @@ from typing import Annotated
 
 import pandas as pd
 
-
 from haystack.components.agents import (
     State,
 )
@@ -13,22 +12,23 @@ from haystack.tools import (
     tool,
 )
 
-
 from app.structured_data import (
     get_dataframe_for_session,
 )
 
 
 # =========================================================
-# SESSION HELPER
+# INTERNAL SESSION ACCESS
 # =========================================================
 
 def _get_session_id(
     state: State,
 ) -> str:
 
-    session_id = state.get(
-        "session_id"
+    session_id = (
+        state.get(
+            "session_id"
+        )
     )
 
 
@@ -45,7 +45,7 @@ def _get_session_id(
 
 
 # =========================================================
-# DATAFRAME -> JSON RECORDS
+# SAFE RECORD CONVERSION
 # =========================================================
 
 def _records_from_dataframe(
@@ -54,8 +54,12 @@ def _records_from_dataframe(
 
     json_text = (
         dataframe.to_json(
-            orient="records",
-            date_format="iso",
+
+            orient=
+                "records",
+
+            date_format=
+                "iso",
         )
     )
 
@@ -66,8 +70,7 @@ def _records_from_dataframe(
 
 
 # =========================================================
-# TOOL 1
-# DATASET INFORMATION
+# GET DATA INFO
 # =========================================================
 
 @tool
@@ -87,8 +90,8 @@ def get_data_info(
 
 ) -> dict:
     """
-    Inspect the structured dataset belonging
-    to the current application session.
+    Get information about the current session's
+    structured dataset.
     """
 
     session_id = (
@@ -99,18 +102,15 @@ def get_data_info(
 
 
     print(
-        "\n[TOOL EXECUTED] "
-        "get_data_info"
+        "\n[TOOL EXECUTED] get_data_info"
     )
 
     print(
-        f"Session: "
-        f"{session_id}"
+        f"Session: {session_id}"
     )
 
     print(
-        f"Request: "
-        f"{request}\n"
+        f"Request: {request}\n"
     )
 
 
@@ -129,26 +129,17 @@ def get_data_info(
 
 
     allowed_requests = {
-
         "summary",
-
         "row_count",
-
         "column_count",
-
         "columns",
-
         "preview",
-
         "data_types",
-
         "missing_values",
     }
 
 
-    if request not in (
-        allowed_requests
-    ):
+    if request not in allowed_requests:
 
         return {
 
@@ -165,55 +156,6 @@ def get_data_info(
         }
 
 
-    # -----------------------------------------------------
-    # SHARED DATA
-    # -----------------------------------------------------
-
-    row_count = int(
-        dataframe.shape[0]
-    )
-
-
-    column_count = int(
-        dataframe.shape[1]
-    )
-
-
-    columns = (
-        dataframe.columns.tolist()
-    )
-
-
-    missing_values = {
-
-        column:
-            int(count)
-
-        for column, count
-        in dataframe
-        .isna()
-        .sum()
-        .items()
-    }
-
-
-    data_types = {
-
-        column:
-            str(dtype)
-
-        for column, dtype
-        in dataframe.dtypes.items()
-    }
-
-
-    preview = (
-        _records_from_dataframe(
-            dataframe.head(5)
-        )
-    )
-
-
     # =====================================================
     # ROW COUNT
     # =====================================================
@@ -226,7 +168,11 @@ def get_data_info(
                 dataset.file_name,
 
             "row_count":
-                row_count,
+                int(
+                    dataframe.shape[
+                        0
+                    ]
+                ),
         }
 
 
@@ -242,7 +188,11 @@ def get_data_info(
                 dataset.file_name,
 
             "column_count":
-                column_count,
+                int(
+                    dataframe.shape[
+                        1
+                    ]
+                ),
         }
 
 
@@ -258,7 +208,7 @@ def get_data_info(
                 dataset.file_name,
 
             "columns":
-                columns,
+                dataframe.columns.tolist(),
         }
 
 
@@ -268,13 +218,22 @@ def get_data_info(
 
     if request == "preview":
 
+        preview = (
+            dataframe.head(
+                5
+            )
+        )
+
+
         return {
 
             "file_name":
                 dataset.file_name,
 
-            "preview":
-                preview,
+            "rows":
+                _records_from_dataframe(
+                    preview
+                ),
         }
 
 
@@ -283,6 +242,16 @@ def get_data_info(
     # =====================================================
 
     if request == "data_types":
+
+        data_types = {
+
+            str(column):
+                str(dtype)
+
+            for column, dtype
+            in dataframe.dtypes.items()
+        }
+
 
         return {
 
@@ -299,6 +268,16 @@ def get_data_info(
     # =====================================================
 
     if request == "missing_values":
+
+        missing_values = {
+
+            str(column):
+                int(count)
+
+            for column, count
+            in dataframe.isna().sum().items()
+        }
+
 
         return {
 
@@ -320,28 +299,33 @@ def get_data_info(
             dataset.file_name,
 
         "row_count":
-            row_count,
+            int(
+                dataframe.shape[
+                    0
+                ]
+            ),
 
         "column_count":
-            column_count,
+            int(
+                dataframe.shape[
+                    1
+                ]
+            ),
 
         "columns":
-            columns,
-
-        "data_types":
-            data_types,
-
-        "missing_values":
-            missing_values,
+            dataframe.columns.tolist(),
 
         "preview":
-            preview,
+            _records_from_dataframe(
+                dataframe.head(
+                    5
+                )
+            ),
     }
 
 
 # =========================================================
-# TOOL 2
-# AGGREGATION
+# AGGREGATE DATA
 # =========================================================
 
 @tool
@@ -350,8 +334,8 @@ def aggregate_data(
     column: Annotated[
         str,
         (
-            "Column on which the calculation "
-            "should be performed."
+            "Name of the dataset column "
+            "to aggregate."
         ),
     ],
 
@@ -359,8 +343,8 @@ def aggregate_data(
         str,
         (
             "Aggregation operation. "
-            "Use exactly one of: "
-            "sum, mean, median, min, max, count."
+            "Use one of: sum, mean, median, "
+            "min, max, count."
         ),
     ],
 
@@ -369,7 +353,7 @@ def aggregate_data(
     group_by: Annotated[
         str,
         (
-            "Optional grouping column. "
+            "Optional column to group results by. "
             "Use an empty string when grouping "
             "is not required."
         ),
@@ -377,8 +361,8 @@ def aggregate_data(
 
 ) -> dict:
     """
-    Perform a safe aggregation on the
-    current session's structured dataset.
+    Perform a controlled aggregation on the
+    current session's dataset.
     """
 
     session_id = (
@@ -389,28 +373,23 @@ def aggregate_data(
 
 
     print(
-        "\n[TOOL EXECUTED] "
-        "aggregate_data"
+        "\n[TOOL EXECUTED] aggregate_data"
     )
 
     print(
-        f"Session: "
-        f"{session_id}"
+        f"Session: {session_id}"
     )
 
     print(
-        f"Column: "
-        f"{column}"
+        f"Column: {column}"
     )
 
     print(
-        f"Operation: "
-        f"{operation}"
+        f"Operation: {operation}"
     )
 
     print(
-        f"Group by: "
-        f"{group_by}\n"
+        f"Group by: {group_by}\n"
     )
 
 
@@ -434,38 +413,21 @@ def aggregate_data(
 
 
     group_by = (
-
         group_by.strip()
-
-        if group_by
-
-        else ""
     )
 
 
-    valid_operations = {
-
+    allowed_operations = {
         "sum",
-
         "mean",
-
         "median",
-
         "min",
-
         "max",
-
         "count",
     }
 
 
-    # -----------------------------------------------------
-    # VALIDATE OPERATION
-    # -----------------------------------------------------
-
-    if operation not in (
-        valid_operations
-    ):
+    if operation not in allowed_operations:
 
         return {
 
@@ -477,25 +439,19 @@ def aggregate_data(
 
             "allowed_operations":
                 sorted(
-                    valid_operations
+                    allowed_operations
                 ),
         }
 
 
-    # -----------------------------------------------------
-    # VALIDATE COLUMN
-    # -----------------------------------------------------
-
-    if column not in (
-        dataframe.columns
-    ):
+    if column not in dataframe.columns:
 
         return {
 
             "error":
                 (
                     f"Column '{column}' "
-                    "does not exist."
+                    f"does not exist."
                 ),
 
             "available_columns":
@@ -503,26 +459,21 @@ def aggregate_data(
         }
 
 
-    # -----------------------------------------------------
-    # VALIDATE GROUP-BY
-    # -----------------------------------------------------
-
     if (
         group_by
 
         and
 
-        group_by
-        not in dataframe.columns
+        group_by not in dataframe.columns
     ):
 
         return {
 
             "error":
                 (
-                    f"Grouping column "
+                    f"Group-by column "
                     f"'{group_by}' "
-                    "does not exist."
+                    f"does not exist."
                 ),
 
             "available_columns":
@@ -538,32 +489,16 @@ def aggregate_data(
 
         if group_by:
 
-            grouped_result = (
-
+            grouped = (
                 dataframe
-
                 .groupby(
                     group_by,
                     dropna=False,
-                )[column]
-
+                )[
+                    column
+                ]
                 .count()
             )
-
-
-            results = [
-
-                {
-                    "group":
-                        str(group),
-
-                    "value":
-                        int(value),
-                }
-
-                for group, value
-                in grouped_result.items()
-            ]
 
 
             return {
@@ -580,8 +515,14 @@ def aggregate_data(
                 "group_by":
                     group_by,
 
-                "results":
-                    results,
+                "results": {
+
+                    str(key):
+                        int(value)
+
+                    for key, value
+                    in grouped.items()
+                },
             }
 
 
@@ -596,12 +537,11 @@ def aggregate_data(
             "operation":
                 operation,
 
-            "value":
+            "result":
                 int(
                     dataframe[
                         column
-                    ]
-                    .count()
+                    ].count()
                 ),
         }
 
@@ -623,60 +563,42 @@ def aggregate_data(
     )
 
 
-    if (
-        numeric_values
-        .notna()
-        .sum()
-        == 0
-    ):
+    if numeric_values.notna().sum() == 0:
 
         return {
 
             "error":
                 (
-                    f"Column '{column}' does "
-                    "not contain numeric values "
-                    f"suitable for '{operation}'."
+                    f"Column '{column}' does not "
+                    f"contain numeric values "
+                    f"required for '{operation}'."
                 )
         }
 
 
     # =====================================================
-    # GROUPED CALCULATION
+    # GROUPED NUMERIC AGGREGATION
     # =====================================================
 
     if group_by:
 
-        temporary_dataframe = (
-
+        working = (
             dataframe[
-                [group_by]
+                [
+                    group_by,
+                ]
             ]
-
             .copy()
         )
 
 
-        temporary_dataframe[
+        working[
             "_analysis_value"
         ] = numeric_values
 
 
-        temporary_dataframe = (
-
-            temporary_dataframe
-            .dropna(
-                subset=[
-                    "_analysis_value"
-                ]
-            )
-        )
-
-
         grouped = (
-
-            temporary_dataframe
-
+            working
             .groupby(
                 group_by,
                 dropna=False,
@@ -688,64 +610,68 @@ def aggregate_data(
 
         if operation == "sum":
 
-            result = (
+            result_series = (
                 grouped.sum()
             )
 
 
         elif operation == "mean":
 
-            result = (
+            result_series = (
                 grouped.mean()
             )
 
 
         elif operation == "median":
 
-            result = (
+            result_series = (
                 grouped.median()
             )
 
 
         elif operation == "min":
 
-            result = (
+            result_series = (
                 grouped.min()
             )
 
 
         elif operation == "max":
 
-            result = (
+            result_series = (
                 grouped.max()
             )
 
 
         else:
 
-            return {
-
-                "error":
-                    (
-                        f"Unsupported operation "
-                        f"'{operation}'."
-                    )
-            }
+            raise RuntimeError(
+                "Unexpected aggregation operation."
+            )
 
 
-        results = [
+        results = {}
 
-            {
-                "group":
-                    str(group),
 
-                "value":
-                    float(value),
-            }
+        for key, value in (
+            result_series.items()
+        ):
 
-            for group, value
-            in result.items()
-        ]
+            if pd.isna(
+                value
+            ):
+
+                results[
+                    str(key)
+                ] = None
+
+            else:
+
+                results[
+                    str(key)
+                ] = float(
+                    value
+                )
 
 
         return {
@@ -768,59 +694,49 @@ def aggregate_data(
 
 
     # =====================================================
-    # NON-GROUPED CALCULATION
+    # NON-GROUPED NUMERIC AGGREGATION
     # =====================================================
-
-    clean_values = (
-        numeric_values.dropna()
-    )
-
 
     if operation == "sum":
 
-        result_value = (
-            clean_values.sum()
+        result = (
+            numeric_values.sum()
         )
 
 
     elif operation == "mean":
 
-        result_value = (
-            clean_values.mean()
+        result = (
+            numeric_values.mean()
         )
 
 
     elif operation == "median":
 
-        result_value = (
-            clean_values.median()
+        result = (
+            numeric_values.median()
         )
 
 
     elif operation == "min":
 
-        result_value = (
-            clean_values.min()
+        result = (
+            numeric_values.min()
         )
 
 
     elif operation == "max":
 
-        result_value = (
-            clean_values.max()
+        result = (
+            numeric_values.max()
         )
 
 
     else:
 
-        return {
-
-            "error":
-                (
-                    f"Unsupported operation "
-                    f"'{operation}'."
-                )
-        }
+        raise RuntimeError(
+            "Unexpected aggregation operation."
+        )
 
 
     return {
@@ -834,15 +750,22 @@ def aggregate_data(
         "operation":
             operation,
 
-        "value":
-            float(
-                result_value
+        "result":
+            (
+                None
+
+                if pd.isna(
+                    result
+                )
+
+                else float(
+                    result
+                )
             ),
     }
 
 
 # =========================================================
-# TOOL 3
 # FILTER DATA
 # =========================================================
 
@@ -852,25 +775,24 @@ def filter_data(
     column: Annotated[
         str,
         (
-            "Column on which the filter "
-            "should be applied."
+            "Dataset column on which the "
+            "filter should be applied."
         ),
     ],
 
     operator: Annotated[
         str,
         (
-            "Filter operator. "
-            "Use exactly one of: "
-            "eq, ne, gt, gte, lt, lte, contains."
+            "Comparison operator. "
+            "Use one of: eq, ne, gt, gte, "
+            "lt, lte, contains."
         ),
     ],
 
     value: Annotated[
         str,
         (
-            "Value to compare the "
-            "column against."
+            "Value to compare against."
         ),
     ],
 
@@ -879,15 +801,15 @@ def filter_data(
     limit: Annotated[
         int,
         (
-            "Maximum number of matching "
-            "rows to return."
+            "Maximum number of matching rows "
+            "to return. Maximum allowed is 50."
         ),
     ] = 10,
 
 ) -> dict:
     """
-    Filter rows from the current session's
-    structured dataset.
+    Filter rows in the current session's dataset
+    using controlled operators.
     """
 
     session_id = (
@@ -898,18 +820,23 @@ def filter_data(
 
 
     print(
-        "\n[TOOL EXECUTED] "
-        "filter_data"
+        "\n[TOOL EXECUTED] filter_data"
     )
 
     print(
-        f"Session: "
-        f"{session_id}"
+        f"Session: {session_id}"
     )
 
     print(
-        f"Condition: "
-        f"{column} {operator} {value}\n"
+        f"Column: {column}"
+    )
+
+    print(
+        f"Operator: {operator}"
+    )
+
+    print(
+        f"Value: {value}\n"
     )
 
 
@@ -932,31 +859,18 @@ def filter_data(
     )
 
 
-    valid_operators = {
-
+    allowed_operators = {
         "eq",
-
         "ne",
-
         "gt",
-
         "gte",
-
         "lt",
-
         "lte",
-
         "contains",
     }
 
 
-    # -----------------------------------------------------
-    # VALIDATE OPERATOR
-    # -----------------------------------------------------
-
-    if operator not in (
-        valid_operators
-    ):
+    if operator not in allowed_operators:
 
         return {
 
@@ -968,25 +882,19 @@ def filter_data(
 
             "allowed_operators":
                 sorted(
-                    valid_operators
+                    allowed_operators
                 ),
         }
 
 
-    # -----------------------------------------------------
-    # VALIDATE COLUMN
-    # -----------------------------------------------------
-
-    if column not in (
-        dataframe.columns
-    ):
+    if column not in dataframe.columns:
 
         return {
 
             "error":
                 (
                     f"Column '{column}' "
-                    "does not exist."
+                    f"does not exist."
                 ),
 
             "available_columns":
@@ -994,18 +902,12 @@ def filter_data(
         }
 
 
-    # -----------------------------------------------------
-    # LIMIT
-    # -----------------------------------------------------
-
     limit = max(
-
         1,
-
         min(
             int(limit),
             50,
-        )
+        ),
     )
 
 
@@ -1023,14 +925,18 @@ def filter_data(
     if operator == "contains":
 
         mask = (
-
             series
-
-            .astype(str)
-
+            .astype(
+                str
+            )
             .str.contains(
-                str(value),
+
+                str(
+                    value
+                ),
+
                 case=False,
+
                 na=False,
             )
         )
@@ -1041,15 +947,35 @@ def filter_data(
     # =====================================================
 
     elif operator in {
-
         "gt",
-
         "gte",
-
         "lt",
-
         "lte",
     }:
+
+        try:
+
+            comparison_value = (
+                float(
+                    value
+                )
+            )
+
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            return {
+
+                "error":
+                    (
+                        f"Operator '{operator}' "
+                        f"requires a numeric value."
+                    )
+            }
+
 
         numeric_series = (
             pd.to_numeric(
@@ -1062,31 +988,11 @@ def filter_data(
         )
 
 
-        try:
-
-            numeric_value = float(
-                value
-            )
-
-
-        except ValueError:
-
-            return {
-
-                "error":
-                    (
-                        f"Value '{value}' "
-                        "must be numeric for "
-                        "this comparison."
-                    )
-            }
-
-
         if operator == "gt":
 
             mask = (
                 numeric_series
-                > numeric_value
+                > comparison_value
             )
 
 
@@ -1094,7 +1000,7 @@ def filter_data(
 
             mask = (
                 numeric_series
-                >= numeric_value
+                >= comparison_value
             )
 
 
@@ -1102,7 +1008,7 @@ def filter_data(
 
             mask = (
                 numeric_series
-                < numeric_value
+                < comparison_value
             )
 
 
@@ -1110,7 +1016,7 @@ def filter_data(
 
             mask = (
                 numeric_series
-                <= numeric_value
+                <= comparison_value
             )
 
 
@@ -1120,73 +1026,78 @@ def filter_data(
 
     else:
 
-        if (
-            pd.api.types
-            .is_numeric_dtype(
-                series
-            )
+        if pd.api.types.is_numeric_dtype(
+            series
         ):
 
             try:
 
-                comparison_value = float(
-                    value
+                comparison_value = (
+                    float(
+                        value
+                    )
                 )
 
 
-            except ValueError:
+                numeric_series = (
+                    pd.to_numeric(
+
+                        series,
+
+                        errors=
+                            "coerce",
+                    )
+                )
+
+
+                if operator == "eq":
+
+                    mask = (
+                        numeric_series
+                        == comparison_value
+                    )
+
+
+                else:
+
+                    mask = (
+                        numeric_series
+                        != comparison_value
+                    )
+
+
+            except (
+                TypeError,
+                ValueError,
+            ):
 
                 return {
 
                     "error":
                         (
                             f"Value '{value}' "
-                            "is not valid for "
-                            f"numeric column "
-                            f"'{column}'."
+                            f"is not valid for "
+                            f"numeric column '{column}'."
                         )
                 }
-
-
-            numeric_series = (
-                pd.to_numeric(
-                    series,
-                    errors="coerce",
-                )
-            )
-
-
-            if operator == "eq":
-
-                mask = (
-                    numeric_series
-                    == comparison_value
-                )
-
-
-            else:
-
-                mask = (
-                    numeric_series
-                    != comparison_value
-                )
 
 
         else:
 
             normalized_series = (
-
                 series
-
-                .astype(str)
-
-                .str.casefold()
+                .astype(
+                    str
+                )
+                .str
+                .casefold()
             )
 
 
             normalized_value = (
-
-                str(value)
+                str(
+                    value
+                )
                 .casefold()
             )
 
@@ -1207,24 +1118,12 @@ def filter_data(
                 )
 
 
-    # =====================================================
-    # APPLY FILTER
-    # =====================================================
-
-    filtered_dataframe = (
-
-        dataframe.loc[
-            mask
+    filtered = (
+        dataframe[
+            mask.fillna(
+                False
+            )
         ]
-    )
-
-
-    returned_rows = (
-
-        filtered_dataframe
-        .head(
-            limit
-        )
     )
 
 
@@ -1233,30 +1132,37 @@ def filter_data(
         "file_name":
             dataset.file_name,
 
-        "condition": {
+        "column":
+            column,
 
-            "column":
-                column,
+        "operator":
+            operator,
 
-            "operator":
-                operator,
-
-            "value":
-                value,
-        },
+        "value":
+            value,
 
         "matching_row_count":
             int(
-                filtered_dataframe.shape[0]
+                len(
+                    filtered
+                )
             ),
 
         "returned_row_count":
             int(
-                returned_rows.shape[0]
+                min(
+                    len(
+                        filtered
+                    ),
+                    limit,
+                )
             ),
 
         "rows":
             _records_from_dataframe(
-                returned_rows
+
+                filtered.head(
+                    limit
+                )
             ),
     }
