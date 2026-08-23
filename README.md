@@ -87,3 +87,8 @@ Tools
 │
 ● Phase 1
 │ Initialize project
+
+
+## CI/CD
+
+This project uses GitHub Actions for automated testing, security auditing, and Docker builds.
