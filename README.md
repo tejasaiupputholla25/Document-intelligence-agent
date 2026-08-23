@@ -1,5 +1,7 @@
 # Document Intelligence AI Agent
 
+[![Document Intelligence CI](https://github.com/tejasaiupputholla25/document-intelligence-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/tejasaiupputholla25/document-intelligence-agent/actions/workflows/ci.yml)
+
 A production-oriented AI application for uploading documents,
 asking questions about their contents, retrieving relevant
 information, performing document-based analysis, and generating
