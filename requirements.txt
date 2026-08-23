@@ -1,4 +1,4 @@
-haystack-ai==2.27
+haystack-ai==3.0.0
 huggingface_hub
 python-dotenv
 pypdf
@@ -13,5 +13,6 @@ python-multipart
 requests
 SQLAlchemy
 psycopg[binary]
-pgvector-haystack
-sentence-transformers-haystack
+pgvector-haystack==6.5.0
+sentence-transformers-haystack==0.1.1
+pydantic==2.13.4
